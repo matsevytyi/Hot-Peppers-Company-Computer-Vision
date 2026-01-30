@@ -6,10 +6,13 @@
 **Paper**: https://doi.org/10.1038/s41597-025-04482-2
 
 ### Structure
-- `sample/`: Small subset for local testing (500–1000 images)
+- `sample/`: Small subset for local testing
 - `raw/`: Full dataset (download on Lightning AI only)
-- `processed/`: Preprocessed sequences
-- `splits/`: Train/val/test splits
+- `processed/`: Preprocessed sequences (optional)
+
+### Splits
+Splits are stored per data root in `<data_root>/splits/` (for example, `data/MMFW-UAV/sample/splits`).
+`prepare_data.py` automatically splits by part if parts exist, otherwise by UAV type.
 
 ### Sample Dataset
 - 2–3 UAV types
@@ -20,6 +23,6 @@
 ### Full Dataset (Lightning AI only)
 - 12 UAV types
 - 3 views: Top_Down, Horizontal, Bottom_Up
-- 3 sensors: Zoom (3840×2160), Wide (3840×2160), Infrared (1280×1024)
+- 3 sensors: Zoom (3840x2160), Wide (3840x2160), Infrared (1280x1024)
 - 147,417 total images
 - 30 FPS video sequences

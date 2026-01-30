@@ -13,6 +13,8 @@ class DetectionLoss(nn.Module):
         self.conf_weight = conf_weight
 
     def forward(self, predictions: torch.Tensor, targets: torch.Tensor):
+        predictions = predictions.contiguous()
+        targets = targets.contiguous()
         pred_bbox = predictions[..., :4]
         pred_conf = predictions[..., 4]
 

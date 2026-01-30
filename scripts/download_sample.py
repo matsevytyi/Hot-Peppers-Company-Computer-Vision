@@ -4,6 +4,78 @@ import json
 import random
 import shutil
 from pathlib import Path
+from typing import List, Tuple
+
+
+def _parse_frame_id(path: Path) -> Tuple[str, int | None]:
+    stem = path.stem
+    if "_" in stem:
+        prefix, idx_str = stem.rsplit("_", 1)
+        if idx_str.isdigit():
+            return prefix, int(idx_str)
+    return stem, None
+
+
+def _contiguous_runs(frames: List[Path]) -> List[List[Path]]:
+    grouped: dict[str, list[tuple[int | None, Path]]] = {}
+    for path in frames:
+        prefix, idx = _parse_frame_id(path)
+        grouped.setdefault(prefix, []).append((idx, path))
+
+    runs: List[List[Path]] = []
+    for items in grouped.values():
+        items.sort(key=lambda x: x[0] if x[0] is not None else x[1].name)
+        if items and items[0][0] is None:
+            runs.append([p for _, p in items])
+            continue
+
+        current = [items[0]]
+        for prev, curr in zip(items, items[1:]):
+            prev_idx = prev[0]
+            curr_idx = curr[0]
+            if prev_idx is not None and curr_idx is not None and curr_idx == prev_idx + 1:
+                current.append(curr)
+            else:
+                runs.append([p for _, p in current])
+                current = [curr]
+        runs.append([p for _, p in current])
+
+    return runs
+
+
+def _select_contiguous_frames(
+    runs: List[List[Path]],
+    max_frames: int | None,
+    clip_length: int,
+    seed: int,
+) -> List[Path]:
+    if max_frames is None:
+        return [p for run in runs for p in run]
+
+    rng = random.Random(seed)
+    candidates: List[List[Path]] = []
+    for run in runs:
+        if len(run) < clip_length:
+            continue
+        for start in range(0, len(run) - clip_length + 1, clip_length):
+            candidates.append(run[start : start + clip_length])
+
+    rng.shuffle(candidates)
+    selected: List[Path] = []
+    for clip in candidates:
+        for frame in clip:
+            if len(selected) >= max_frames:
+                return selected
+            selected.append(frame)
+
+    if len(selected) < max_frames:
+        leftovers = [p for run in runs for p in run if p not in selected]
+        for frame in leftovers:
+            if len(selected) >= max_frames:
+                break
+            selected.append(frame)
+
+    return selected
 
 
 def create_sample(
@@ -13,6 +85,7 @@ def create_sample(
     view: str = "Top_Down",
     sensor: str = "Zoom",
     limit_per_type: int = 200,
+    clip_length: int = 10,
     seed: int = 42,
 ):
     raw_dir = Path(raw_dir)
@@ -28,6 +101,8 @@ def create_sample(
         "sensor": sensor,
         "uav_types": [],
         "counts": {},
+        "clip_length": clip_length,
+        "limit_per_type": limit_per_type,
     }
 
     for uav_type in sorted(uav_types):
@@ -43,9 +118,14 @@ def create_sample(
             print(f"No frames found in {img_dir}")
             continue
 
-        sample = frames
-        if limit_per_type is not None and len(frames) > limit_per_type:
-            sample = random.sample(frames, limit_per_type)
+        ann_stems = {p.stem for p in ann_dir.glob("*.xml")}
+        frames = [p for p in frames if p.stem in ann_stems]
+        if not frames:
+            print(f"No annotated frames found in {img_dir}")
+            continue
+
+        runs = _contiguous_runs(frames)
+        sample = _select_contiguous_frames(runs, limit_per_type, clip_length, seed)
 
         out_img_dir = output_dir / uav_type / view / f"{sensor}_Imgs"
         out_ann_dir = output_dir / uav_type / view / f"{sensor}_Anns"
@@ -84,6 +164,7 @@ if __name__ == "__main__":
     parser.add_argument("--view", type=str, default="Top_Down")
     parser.add_argument("--sensor", type=str, default="Zoom")
     parser.add_argument("--limit_per_type", type=int, default=200)
+    parser.add_argument("--clip_length", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
 
     args = parser.parse_args()
@@ -94,5 +175,6 @@ if __name__ == "__main__":
         view=args.view,
         sensor=args.sensor,
         limit_per_type=args.limit_per_type,
+        clip_length=args.clip_length,
         seed=args.seed,
     )
