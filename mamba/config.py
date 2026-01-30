@@ -6,14 +6,14 @@ from dataclasses import dataclass, field
 class DataConfig:
     """Data configuration."""
 
-    data_root: str = "data/MMFW-UAV/sample"
+    data_root: str = "data/MMFW-UAV/raw"  # Use raw data
     sensor_type: str = "Zoom"
     view: str = "Top_Down"
-    sequence_length: int = 10
-    stride: int = 5
-    img_size: int = 640
-    batch_size: int = 4
-    num_workers: int = 4
+    sequence_length: int = 3   # Reduced for MPS memory
+    stride: int = 2
+    img_size: int = 320        # Reduced for MPS memory (was 640)
+    batch_size: int = 2        # Reduced for MPS memory (was 4)
+    num_workers: int = 2       # Less workers for stability
 
 
 @dataclass

@@ -346,6 +346,7 @@ class MMFWUAVSequenceDataset(Dataset):
         img_size: int = 640,
         transform=None,
         uav_types: Optional[List[str]] = None,
+        split_ratios: Tuple[float, float, float] = (0.7, 0.15, 0.15),
     ):
         """Initialize dataset.
         
@@ -359,6 +360,7 @@ class MMFWUAVSequenceDataset(Dataset):
             img_size: Target image size after letterbox resize
             transform: Albumentations transform (must be ReplayCompose)
             uav_types: Optional list of UAV types to include (e.g., ['A', 'B'])
+            split_ratios: Tuple of (train, val, test) ratios for deterministic split
         """
         self.data_root = Path(data_root)
         self.split = split
@@ -368,12 +370,16 @@ class MMFWUAVSequenceDataset(Dataset):
         self.stride = stride
         self.img_size = img_size
         self.uav_types = uav_types
+        self.split_ratios = split_ratios
 
         # Try to load split file, or scan directories directly
         self.split_items = self._get_split_items()
 
-        # Create sequences
-        self.sequences = self._create_sequences()
+        # Create all sequences first
+        all_sequences = self._create_sequences()
+        
+        # Apply train/val/test split
+        self.sequences = self._apply_split(all_sequences)
 
         # Setup transforms
         if transform is None:
@@ -387,6 +393,26 @@ class MMFWUAVSequenceDataset(Dataset):
             raise ValueError(
                 "Transform must be an albumentations.ReplayCompose to keep sequence augmentations consistent."
             )
+    
+    def _apply_split(self, all_sequences: List[List[Dict]]) -> List[List[Dict]]:
+        """Apply train/val/test split to sequences using deterministic ordering.
+        
+        Uses sequence order (not random): first 70% train, next 15% val, last 15% test.
+        """
+        n_total = len(all_sequences)
+        train_ratio, val_ratio, _ = self.split_ratios
+        
+        n_train = int(n_total * train_ratio)
+        n_val = int(n_total * val_ratio)
+        
+        if self.split == "train":
+            return all_sequences[:n_train]
+        elif self.split == "val":
+            return all_sequences[n_train:n_train + n_val]
+        else:  # test
+            return all_sequences[n_train + n_val:]
+
+
 
     def _get_split_items(self) -> List[Path]:
         """Get UAV directories to include based on split or direct scanning."""
