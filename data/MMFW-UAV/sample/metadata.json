@@ -1,0 +1,6 @@
+{
+  "note": "Placeholder metadata for the local sample subset. Replace with real counts/labels when available.",
+  "uav_types": ["Fixed-wing-UAV-A", "Fixed-wing-UAV-B"],
+  "view": "Top_Down",
+  "sensor": "Zoom"
+}
