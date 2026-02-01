@@ -4,8 +4,10 @@ torchvision>=0.15.0
 pytorch-lightning>=2.0.0
 
 # Mamba (skip on Mac)
-mamba-ssm>=1.2.0; platform_system != "Darwin"
-causal-conv1d>=1.2.0; platform_system != "Darwin"
+#mamba-ssm>=1.2.0; platform_system != "Darwin"
+#causal-conv1d>=1.2.0; platform_system != "Darwin"
+
+# install prebuild wheels instead
 
 # Data processing
 opencv-python>=4.8.0
