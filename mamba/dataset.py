@@ -478,7 +478,17 @@ class MMFWUAVSequenceDataset(Dataset):
                 continue
 
             # Get all frames
-            frames = sorted([f for f in os.listdir(img_dir) if f.lower().endswith((".jpg", ".png"))])
+            #frames = sorted([f for f in os.listdir(img_dir) if f.lower().endswith((".jpg", ".png"))])
+
+            frames = sorted([
+                f for f in os.listdir(img_dir) 
+                if f.lower().endswith((".jpg", ".png")) 
+                and not f.lower().__contains__("._")  # metadata files (manually checked they are not imgs) 
+            ])
+
+            print("grabbed frames, ", len(frames), frames[0])
+
+            
             if not frames:
                 continue
                 
@@ -547,7 +557,10 @@ class MMFWUAVSequenceDataset(Dataset):
             # Load image
             img = cv2.imread(frame_data["image_path"])
             if img is None:
-                raise FileNotFoundError(f"Image not found: {frame_data['image_path']}")
+                #raise FileNotFoundError(f"Image not found: {frame_data['image_path']}")
+                print(f"Image not found: {frame_data['image_path']}")
+                continue
+            
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
             # Parse annotation
