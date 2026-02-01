@@ -35,3 +35,24 @@ python train.py --data_root data/MMFW-UAV/sample --epochs 10
 - Splits live under the selected data root (e.g., `data/MMFW-UAV/raw/splits`).
 - If your dataset is organized by parts, `prepare_data.py` splits by part to avoid leakage.
 - Legacy notebooks and Lightning modules remain under `mamba/` but are no longer required.
+
+## Current plan
+A) **ORIGINAL MAMBA**
+1. ~~Implement detector with original mamba~~
+2. Train/finetune & metrics
+3. Test in deployment locally
+4. Test in deployment on edge
+
+B) **MAMBA-VISION**
+1.  ~~Add just VisionMamba blocks~~
+2. Combine with attention (one of the core ideas behind the vision mamba block)
+3. Combine into original VisionMamba block
+4. Train/finetune & metrics
+5. Test in deployment locally
+6. Test in deployment on edge
+
+C) **CHANNEL/SPATIAL ATTENTION**
+
+D) **VECTOR FIELDS**
+
+E) **MoE & gating network (to handle different domains)**
