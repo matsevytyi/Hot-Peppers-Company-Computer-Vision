@@ -24,6 +24,7 @@ class MambaDetectorModule(pl.LightningModule):
             output_last_only=config.model.output_last_only,
             freeze_backbone=config.model.freeze_backbone,
             pretrained=config.model.pretrained,
+            mamba_type=config.model.mamba_type,
         )
 
         self.criterion = DetectionLoss(

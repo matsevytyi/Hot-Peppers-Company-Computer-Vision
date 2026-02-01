@@ -1,7 +1,7 @@
 """Complete Mamba UAV Detector."""
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Literal
 
 import torch
 import torch.nn as nn
@@ -9,10 +9,16 @@ import torch.nn as nn
 from .backbone import create_backbone
 from .detection_head import DetectionHead
 from .mamba_block import create_mamba_block
+from .mamba_vision_block import create_mamba_vision_block
 
 
 class MambaUAVDetector(nn.Module):
-    """Fixed-wing UAV detector with Mamba temporal modeling."""
+    """Fixed-wing UAV detector with Mamba temporal modeling.
+    
+    Supports two types of temporal blocks:
+    - Standard Mamba (mamba_block.py): Basic state-space model
+    - Vision Mamba (mamba_vision_block.py): Vision-optimized with normal Conv1d, selective SSM scan and layer norm
+    """
 
     def __init__(
         self,
@@ -26,6 +32,7 @@ class MambaUAVDetector(nn.Module):
     ):
         super().__init__()
         self.output_last_only = output_last_only
+        self.mamba_type = mamba_type
 
         self.backbone = create_backbone(
             backbone,
@@ -37,9 +44,24 @@ class MambaUAVDetector(nn.Module):
         self.pool = nn.AdaptiveAvgPool2d((1, 1))
         self.feature_proj = nn.Linear(backbone_channels, d_model)
 
-        self.mamba_layers = nn.ModuleList(
-            [create_mamba_block(d_model=d_model, d_state=d_state) for _ in range(mamba_layers)]
-        )
+        # Create temporal blocks based on type
+        if mamba_type == "vision":
+            self.mamba_layers = nn.ModuleList(
+                [
+                    create_mamba_vision_block(
+                        d_model=d_model,
+                        d_state=d_state,
+                    )
+                    for _ in range(mamba_layers)
+                ]
+            )
+        else:
+            self.mamba_layers = nn.ModuleList(
+                [
+                    create_mamba_block(d_model=d_model, d_state=d_state)
+                    for _ in range(mamba_layers)
+                ]
+            )
 
         self.detection_head = DetectionHead(in_features=d_model, hidden_dim=128)
 
