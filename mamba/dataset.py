@@ -615,9 +615,17 @@ class MMFWUAVSequenceDataset(Dataset):
                 y_center = (bbox_t[1] + bbox_t[3]) / 2 / self.img_size
                 width_n = (bbox_t[2] - bbox_t[0]) / self.img_size
                 height_n = (bbox_t[3] - bbox_t[1]) / self.img_size
+                
+                # Ensure valid bbox dimensions
+                width_n = max(0.001, min(1.0, width_n))
+                height_n = max(0.001, min(1.0, height_n))
+                x_center = max(0.0, min(1.0, x_center))
+                y_center = max(0.0, min(1.0, y_center))
+                
                 target = torch.tensor([x_center, y_center, width_n, height_n, 1.0], dtype=torch.float32)
             else:
-                target = torch.tensor([0.5, 0.5, 0.1, 0.1, 0.0], dtype=torch.float32)
+                # No object: use zero confidence with dummy bbox (outside image bounds)
+                target = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.0], dtype=torch.float32)
 
             images.append(img_tensor)
             targets.append(target)

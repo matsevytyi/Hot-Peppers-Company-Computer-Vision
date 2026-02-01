@@ -5,12 +5,13 @@ import torch.nn.functional as F
 
 
 class DetectionLoss(nn.Module):
-    """Combined loss for bbox regression and confidence."""
+    """Combined loss for bbox regression and confidence with numerical stability."""
 
-    def __init__(self, bbox_weight: float = 1.0, conf_weight: float = 1.0):
+    def __init__(self, bbox_weight: float = 1.0, conf_weight: float = 1.0, pos_weight: float = 1.0):
         super().__init__()
         self.bbox_weight = bbox_weight
         self.conf_weight = conf_weight
+        self.pos_weight = pos_weight  # Weight for positive (object present) samples
 
     def forward(self, predictions: torch.Tensor, targets: torch.Tensor):
         predictions = predictions.contiguous()
@@ -21,15 +22,38 @@ class DetectionLoss(nn.Module):
         target_bbox = targets[..., :4]
         target_conf = targets[..., 4]
 
-        bbox_loss = F.smooth_l1_loss(pred_bbox, target_bbox, reduction="mean")
-        conf_loss = F.binary_cross_entropy_with_logits(pred_conf, target_conf, reduction="mean")
+        # Clamp predictions for numerical stability
+        pred_conf = torch.clamp(pred_conf, -10, 10)
+        
+        # Only apply bbox loss where objects are present (target_conf > 0.5)
+        object_mask = target_conf > 0.5
+        if object_mask.sum() > 0:
+            bbox_loss = F.smooth_l1_loss(
+                pred_bbox[object_mask], 
+                target_bbox[object_mask], 
+                reduction="mean"
+            )
+        else:
+            bbox_loss = torch.tensor(0.0, device=predictions.device)
+
+        # Confidence loss with pos_weight for class imbalance
+        conf_loss = F.binary_cross_entropy_with_logits(
+            pred_conf, 
+            target_conf, 
+            pos_weight=torch.tensor([self.pos_weight], device=predictions.device),
+            reduction="mean"
+        )
 
         total_loss = self.bbox_weight * bbox_loss + self.conf_weight * conf_loss
+        
+        # Ensure no NaN values
+        if torch.isnan(total_loss):
+            total_loss = torch.tensor(0.0, device=predictions.device, requires_grad=True)
 
         return {
             "loss": total_loss,
-            "bbox_loss": bbox_loss.detach(),
-            "conf_loss": conf_loss.detach(),
+            "bbox_loss": bbox_loss.detach() if not torch.isnan(bbox_loss) else torch.tensor(0.0),
+            "conf_loss": conf_loss.detach() if not torch.isnan(conf_loss) else torch.tensor(0.0),
         }
 
 
