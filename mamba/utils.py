@@ -22,7 +22,7 @@ class DetectionLoss(nn.Module):
         target_conf = targets[..., 4]
 
         bbox_loss = F.smooth_l1_loss(pred_bbox, target_bbox, reduction="mean")
-        conf_loss = F.binary_cross_entropy(pred_conf, target_conf, reduction="mean")
+        conf_loss = F.binary_cross_entropy_with_logits(pred_conf, target_conf, reduction="mean")
 
         total_loss = self.bbox_weight * bbox_loss + self.conf_weight * conf_loss
 
