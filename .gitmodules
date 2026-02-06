@@ -1,0 +1,3 @@
+[submodule "MambaVisionReengineering"]
+	path = MambaVisionReengineering
+	url = https://github.com/matsevytyi/MambaVisionReengineering.git
