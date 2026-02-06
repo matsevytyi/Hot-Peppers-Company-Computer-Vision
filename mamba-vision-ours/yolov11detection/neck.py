@@ -52,7 +52,7 @@ class YOLONeck(nn.Module):
             List of 3 feature pyramids at scales: 28x28, 14x14, 7x7
         """
         # features = [stage3 (dim=320, 14x14), stage4 (dim=640, 7x7)]
-        assert len(features) == 2, f"Expected 2 features, got {len(features)}"
+        assert len(features) == 2, f"Expected 2 features, got {len(features)} with shape of {[f.shape for f in features]}"
         
         # lateral convolutions to both stages
         stage3_lateral = self.lateral_convs[0](features[0])  # (256, 14, 14)

@@ -14,6 +14,7 @@ from torchinfo import summary
 
 try:
     # official approach
+    # mambavision installed as 'cd to mambavision' and 'pip install -e MambaVisionReengineering'
     from mambavision import create_model 
     torch.serialization.add_safe_globals([argparse.Namespace])
 except ImportError:
@@ -25,10 +26,10 @@ class MambaVisionOurs(nn.Module):
     def __init__(
         self, 
         device="cuda",
-        model_type="mamba_vision_T", 
+        model_type="mamba_vision_T2", 
         num_output_classes=80, 
         pretrained=True,
-        checkpoint_path="mambavision_tiny_1k.pth.tar"
+        checkpoint_path="mambavision_tiny2_1k.pth.tar"
     ):
         """
         Args:
@@ -39,7 +40,7 @@ class MambaVisionOurs(nn.Module):
         super().__init__()
         self.backbone = create_model(
             model_type, 
-            pretrained=True, 
+            pretrained=pretrained, 
             num_classes=0,
             #checkpoint_path=checkpoint_path
         )
@@ -56,6 +57,7 @@ class MambaVisionOurs(nn.Module):
 
             # remove head weights
             backbone_state_dict = {k: v for k, v in state_dict.items() if not k.startswith('head.')}
+            print(backbone_state_dict.items())
 
             missing, unexpected = self.backbone.load_state_dict(backbone_state_dict, strict=False)
             print("Missing keys:", missing)
@@ -64,7 +66,7 @@ class MambaVisionOurs(nn.Module):
         
         # Detection Neck (FPN/PAN style)
         # Using stages 2, 3, 4 (160, 320, 640 channels) for multi-scale detection
-        self.neck = YOLONeck(in_channels=self.backbone_dims[1:], out_channels=256)
+        self.neck = YOLONeck(in_channels=self.backbone_dims[2:], out_channels=256)
         
         # Detection Head
         self.head = YOLOv11Head(in_channels=256, num_classes=num_output_classes)
@@ -81,12 +83,12 @@ class MambaVisionOurs(nn.Module):
         """
         # in paper mamba vision returns (avg_pool_out, list_of_stage_features)
         # when num_classes=0 or when used as a feature extractor
-        stage_features = self.backbone.forward_features(x)
-        print(np.shape(stage_features))
+        _, stage_features = self.backbone.forward_features(x)
+        #print(np.shape(stage_features))
         
         # features[0]=Stage1, features[1]=Stage2, features[2]=Stage3, features[3]=Stage4
         # pass the last N stages to the YOLO neck
-        neck_out = self.neck(stage_features[1:4]) 
+        neck_out = self.neck(stage_features[1:3]) 
         
         head_out = self.head(neck_out)
         
@@ -101,14 +103,14 @@ def check_shapes(model: MambaVisionOurs, input_tensor: torch.Tensor):
     with torch.no_grad():
         # Backbone
         print("\n=== BACKBONE ===")
-        backbone_out, features = model.backbone(input_tensor)
+        backbone_out, features = model.backbone.forward_features(input_tensor)
         print(f"Backbone output (pooled logits/features): {backbone_out.shape if backbone_out is not None else None}")
         for i, f in enumerate(features):
             print(f"Feature {i} shape: {f.shape}")
         
         # Neck
         print("\n=== NECK ===")
-        neck_out = model.neck(features[1:])  # stages 2,3,4
+        neck_out = model.neck(features[1:3])  # stages 3,4
         for i, n in enumerate(neck_out):
             print(f"Neck output scale {i} shape: {n.shape}")
         
@@ -137,10 +139,10 @@ if __name__ == "__main__":
 
 
     model = MambaVisionOurs(
-        model_type="mamba_vision_T",
+        model_type="mamba_vision_T2",
         device=device,
         num_output_classes=80,
-        pretrained=True,
+        pretrained=False,
     ).to(device)
 
     
@@ -151,7 +153,7 @@ if __name__ == "__main__":
     print("\nTesting forward pass...")
     x = torch.randn(20, 3, 224, 224).to(device)
 
-    #check_shapes(model, x)
+    check_shapes(model, x)
     
     with torch.no_grad():
         outputs = model(x)

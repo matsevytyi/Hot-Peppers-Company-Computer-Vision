@@ -18,6 +18,7 @@ class YOLOv11Head(nn.Module):
             num_scales: Number of detection scales (default: 3)
         """
         super().__init__()
+        self.in_channels = in_channels
         self.num_classes = num_classes
         self.num_scales = num_scales
         
