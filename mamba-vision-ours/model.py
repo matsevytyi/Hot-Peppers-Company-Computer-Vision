@@ -116,9 +116,8 @@ if __name__ == "__main__":
 
     print("Creating MambaYOLO model...")
     model = MambaVisionOurs(
-        backbone_model="mamba_vision_T",
+        model_type="mamba_vision_T",
         num_output_classes=80,
-        freeze_backbone=True,
         pretrained=True
     )
     

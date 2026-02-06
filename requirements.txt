@@ -34,3 +34,6 @@ timm>=0.9.0
 # Development
 jupyter>=1.0.0
 ipywidgets>=8.0.0
+
+# then install pip install -e MambaVisionReengineering
+#TODO: switch to setup.py/setup.sh
