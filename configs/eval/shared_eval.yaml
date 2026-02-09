@@ -1,0 +1,82 @@
+eval:
+  output_dir: results/shared_eval
+  device: cuda
+  batch_size: 8
+  num_workers: 4
+  conf_threshold: 0.25
+  nms_iou: 0.5
+  max_images_quick: 512
+  save_predictions: true
+  metrics:
+    - map_50
+    - map_50_95
+    - fps
+
+  datasets:
+    - name: coco_val
+      manifest: configs/manifests/coco_val.json
+      image_size: 640
+    - name: bdd_day_val
+      manifest: configs/manifests/bdd_day_val.json
+      image_size: 640
+    - name: bdd_night_val
+      manifest: configs/manifests/bdd_night_val.json
+      image_size: 640
+    - name: acdc_val
+      manifest: configs/manifests/acdc_val.json
+      image_size: 640
+
+  models:
+    - name: base_coco
+      model:
+        model_file: mamba-vision-ours/model.py
+        backbone: mamba_vision_T2
+        num_classes: 8
+        pretrained: false
+        checkpoint_path: ""
+      base_checkpoint: checkpoints/base/coco_base.ckpt
+
+    - name: lora_day
+      model:
+        model_file: mamba-vision-ours/model.py
+        backbone: mamba_vision_T2
+        num_classes: 8
+        pretrained: false
+        checkpoint_path: ""
+      base_checkpoint: checkpoints/base/coco_base.ckpt
+      lora_adapter: checkpoints/lora/bdd_day.safetensors
+      lora:
+        rank: 8
+        alpha: 16
+        dropout: 0.05
+        target_rule: all_linear_except_head
+
+    - name: lora_night
+      model:
+        model_file: mamba-vision-ours/model.py
+        backbone: mamba_vision_T2
+        num_classes: 8
+        pretrained: false
+        checkpoint_path: ""
+      base_checkpoint: checkpoints/base/coco_base.ckpt
+      lora_adapter: checkpoints/lora/bdd_night.safetensors
+      lora:
+        rank: 8
+        alpha: 16
+        dropout: 0.05
+        target_rule: all_linear_except_head
+
+    - name: lora_acdc
+      model:
+        model_file: mamba-vision-ours/model.py
+        backbone: mamba_vision_T2
+        num_classes: 8
+        pretrained: false
+        checkpoint_path: ""
+      base_checkpoint: checkpoints/base/coco_base.ckpt
+      lora_adapter: checkpoints/lora/acdc_adverse.safetensors
+      lora:
+        rank: 8
+        alpha: 16
+        dropout: 0.05
+        target_rule: all_linear_except_head

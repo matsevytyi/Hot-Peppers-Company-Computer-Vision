@@ -1,16 +1,20 @@
 """Initial model: YOLOv11 Detection Head with Mamba-Vision Backbone."""
 
-import torch
 import argparse
-import torch.nn as nn
+import sys
+from pathlib import Path
 from typing import List
 
 import numpy as np
+import torch
+import torch.nn as nn
 
-from yolov11detection import YOLOv11Head
-from yolov11detection import YOLONeck
-
-from torchinfo import summary
+try:
+    from .yolov11detection import YOLOv11Head
+    from .yolov11detection import YOLONeck
+except ImportError:
+    from yolov11detection import YOLOv11Head
+    from yolov11detection import YOLONeck
 
 try:
     # official approach
@@ -18,7 +22,18 @@ try:
     from mambavision import create_model 
     torch.serialization.add_safe_globals([argparse.Namespace])
 except ImportError:
-    raise ImportError("Check if 'mambavision' package/folder is in MambaVisionReengineering")
+    repo_root = Path(__file__).resolve().parents[1]
+    local_pkg_root = repo_root / "MambaVisionReengineering"
+    if str(local_pkg_root) not in sys.path:
+        sys.path.insert(0, str(local_pkg_root))
+    try:
+        from mambavision import create_model
+        torch.serialization.add_safe_globals([argparse.Namespace])
+    except ImportError as exc:
+        raise ImportError(
+            "Could not import 'mambavision'. Initialize submodule and install it "
+            "(`git submodule update --init --recursive` + `pip install -e MambaVisionReengineering`)."
+        ) from exc
 
 class MambaVisionOurs(nn.Module):
     """MambaVision-based detector with frozen backbone and YOLOv11 detection head."""
@@ -57,7 +72,7 @@ class MambaVisionOurs(nn.Module):
 
             # remove head weights
             backbone_state_dict = {k: v for k, v in state_dict.items() if not k.startswith('head.')}
-            print(backbone_state_dict.items())
+            print(f"Loaded pretrained backbone tensors: {len(backbone_state_dict)}")
 
             missing, unexpected = self.backbone.load_state_dict(backbone_state_dict, strict=False)
             print("Missing keys:", missing)
@@ -65,7 +80,7 @@ class MambaVisionOurs(nn.Module):
 
         
         # Detection Neck (FPN/PAN style)
-        # Using stages 2, 3, 4 (160, 320, 640 channels) for multi-scale detection
+        # Using stages 3, 4 (320, 640 channels) for multi-scale detection
         self.neck = YOLONeck(in_channels=self.backbone_dims[2:], out_channels=256)
         
         # Detection Head
@@ -88,7 +103,7 @@ class MambaVisionOurs(nn.Module):
         
         # features[0]=Stage1, features[1]=Stage2, features[2]=Stage3, features[3]=Stage4
         # pass the last N stages to the YOLO neck
-        neck_out = self.neck(stage_features[1:3]) 
+        neck_out = self.neck(stage_features[2:4]) 
         
         head_out = self.head(neck_out)
         
@@ -110,7 +125,7 @@ def check_shapes(model: MambaVisionOurs, input_tensor: torch.Tensor):
         
         # Neck
         print("\n=== NECK ===")
-        neck_out = model.neck(features[1:3])  # stages 3,4
+        neck_out = model.neck(features[2:4])  # stages 3,4
         for i, n in enumerate(neck_out):
             print(f"Neck output scale {i} shape: {n.shape}")
         
@@ -147,7 +162,12 @@ if __name__ == "__main__":
 
     
     print("\nModel Summary:")
-    summary(model.backbone, input_size=(20, 3, 224, 224))
+    try:
+        from torchinfo import summary
+
+        summary(model.backbone, input_size=(20, 3, 224, 224))
+    except Exception as exc:
+        print(f"Skipping torchinfo summary: {exc}")
     
     # Test forward pass
     print("\nTesting forward pass...")

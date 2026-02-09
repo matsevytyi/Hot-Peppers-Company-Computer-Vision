@@ -1,0 +1,19 @@
+class_list:
+  - person
+  - bicycle
+  - car
+  - motorcycle
+  - bus
+  - train
+  - truck
+  - traffic_light
+
+class_map:
+  person: 0
+  bicycle: 1
+  car: 2
+  motorcycle: 3
+  bus: 4
+  train: 5
+  truck: 6
+  traffic_light: 7

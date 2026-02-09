@@ -1,0 +1,14 @@
+name: acdc
+source: fiftyone_zoo_or_local
+zoo_name: acdc
+splits:
+  train: train
+  val: validation
+annotation_type: detection_only
+class_policy: common_8
+manifests:
+  train: configs/manifests/acdc_train.json
+  val: configs/manifests/acdc_val.json
+exports:
+  train: data/exports/acdc/train
+  val: data/exports/acdc/val

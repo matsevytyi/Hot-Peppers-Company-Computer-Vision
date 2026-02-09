@@ -1,0 +1,55 @@
+run_name: lora_acdc_adverse
+
+data:
+  source: fiftyone_zoo_or_local
+  zoo_name: acdc
+  split_train: train
+  split_val: validation
+  time_of_day: null
+  manifest_train: configs/manifests/acdc_train.json
+  manifest_val: configs/manifests/acdc_val.json
+  export_train_dir: data/exports/acdc/train
+  export_val_dir: data/exports/acdc/val
+  max_samples_train: null
+  max_samples_val: null
+  local_dataset_dir: null
+  local_dataset_type: COCODetectionDataset
+  lora_output_path: checkpoints/lora/acdc_adverse.safetensors
+
+model:
+  model_file: mamba-vision-ours/model.py
+  backbone: mamba_vision_T2
+  num_classes: 8
+  pretrained: false
+  checkpoint_path: ""
+  base_checkpoint: checkpoints/base/coco_base.ckpt
+
+train:
+  epochs: 12
+  batch_size: 8
+  num_workers: 4
+  lr: 0.0002
+  weight_decay: 0.0001
+  scheduler: cosine
+  pilot_steps: 5
+  pilot_val_steps: 2
+  precision: fp16
+  device: cuda
+  image_size: 640
+  grad_clip_norm: 1.0
+
+ckpt:
+  output_path: checkpoints/lora/acdc_train_state.ckpt
+  save_top_k: 3
+  save_last: true
+
+lora:
+  rank: 8
+  alpha: 16
+  dropout: 0.05
+  target_rule: all_linear_except_head
+
+freeze:
+  backbone_base: true
+  neck: true
+  head: true

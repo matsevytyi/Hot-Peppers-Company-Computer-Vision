@@ -1,0 +1,15 @@
+name: bdd_day
+source: fiftyone_zoo
+zoo_name: bdd100k
+splits:
+  train: train
+  val: validation
+filters:
+  time_of_day: [daytime]
+class_policy: common_8
+manifests:
+  train: configs/manifests/bdd_day_train.json
+  val: configs/manifests/bdd_day_val.json
+exports:
+  train: data/exports/bdd_day/train
+  val: data/exports/bdd_day/val

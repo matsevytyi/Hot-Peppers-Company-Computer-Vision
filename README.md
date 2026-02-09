@@ -2,6 +2,20 @@
 
 Minimal training pipeline for MMFW-UAV sequence detection.
 
+## Mamba-Vision COCO/LoRA Pipelines
+
+Notebook-first pipelines for COCO base training + LoRA adapters are documented in:
+
+- `docs/mamba_vision_pipelines.md`
+
+Main entry notebooks:
+
+- `notebooks/11_train_coco_base.ipynb`
+- `notebooks/12_train_lora_bdd_day.ipynb`
+- `notebooks/13_train_lora_bdd_night.ipynb`
+- `notebooks/14_train_lora_acdc.ipynb`
+- `notebooks/20_eval_shared.ipynb`
+
 ## Quickstart
 
 1) (Optional) Create a local sample subset from a raw copy:

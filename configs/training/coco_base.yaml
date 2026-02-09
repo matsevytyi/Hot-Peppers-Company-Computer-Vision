@@ -1,0 +1,45 @@
+run_name: coco_base
+
+data:
+  source: fiftyone_zoo
+  zoo_name: coco-2017
+  split_train: train
+  split_val: validation
+  manifest_train: configs/manifests/coco_train.json
+  manifest_val: configs/manifests/coco_val.json
+  export_train_dir: data/exports/coco/train
+  export_val_dir: data/exports/coco/val
+  max_samples_train: null
+  max_samples_val: null
+
+model:
+  model_file: mamba-vision-ours/model.py
+  backbone: mamba_vision_T2
+  num_classes: 8
+  pretrained: true
+  checkpoint_path: mambavision_tiny2_1k.pth.tar
+  base_checkpoint: ""
+
+train:
+  epochs: 30
+  batch_size: 8
+  num_workers: 4
+  lr: 0.0001
+  weight_decay: 0.0001
+  scheduler: cosine
+  pilot_steps: 5
+  pilot_val_steps: 2
+  precision: fp16
+  device: cuda
+  image_size: 640
+  grad_clip_norm: 1.0
+
+ckpt:
+  output_path: checkpoints/base/coco_base.ckpt
+  save_top_k: 3
+  save_last: true
+
+freeze:
+  backbone_base: false
+  neck: false
+  head: false
