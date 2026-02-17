@@ -12,7 +12,7 @@ data:
   export_val_dir: data/exports/acdc/val
   max_samples_train: null
   max_samples_val: null
-  local_dataset_dir: null
+  local_dataset_dir: /teamspace/studios/this_studio/datasets/acdc/gt_detection_trainval
   local_dataset_type: COCODetectionDataset
   lora_output_path: checkpoints/lora/acdc_adverse.safetensors
 

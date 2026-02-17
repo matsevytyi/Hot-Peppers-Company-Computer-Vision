@@ -38,6 +38,22 @@ class LoRALinear(nn.Module):
         lora = F.linear(lora, self.lora_B)
         return base_out + lora * self.scaling
 
+    @property
+    def weight(self) -> torch.Tensor:
+        return self.base.weight
+
+    @property
+    def bias(self) -> torch.Tensor | None:
+        return self.base.bias
+
+    @property
+    def in_features(self) -> int:
+        return self.base.in_features
+
+    @property
+    def out_features(self) -> int:
+        return self.base.out_features
+
 
 def _matches_target_rule(module_name: str, target_rule: str) -> bool:
     lower = module_name.lower()

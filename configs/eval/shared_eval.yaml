@@ -11,6 +11,18 @@ eval:
     - map_50
     - map_50_95
     - fps
+    - frames_per_watt
+    - avg_power_w
+    - energy_per_frame_j
+
+  power:
+    enabled: true
+    backend: auto
+    gpu_index: 0
+    poll_interval_ms: 100
+    warmup_batches: 20
+    telemetry: true
+    telemetry_dir: results/shared_eval/telemetry
 
   datasets:
     - name: coco_val

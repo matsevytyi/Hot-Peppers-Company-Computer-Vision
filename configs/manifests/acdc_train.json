@@ -1,0 +1,31 @@
+{
+  "dataset_name": "acdc_train",
+  "source": "fiftyone_zoo",
+  "split": "train",
+  "class_list": [
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "bus",
+    "train",
+    "truck",
+    "traffic_light"
+  ],
+  "class_map": {
+    "person": 0,
+    "bicycle": 1,
+    "car": 2,
+    "motorcycle": 3,
+    "bus": 4,
+    "train": 5,
+    "truck": 6,
+    "traffic_light": 7
+  },
+  "root_dir": "/teamspace/studios/this_studio/Hot-Peppers-Company-Computer-Vision/data/exports/acdc/train",
+  "images_dir": "/teamspace/studios/this_studio/Hot-Peppers-Company-Computer-Vision/data/exports/acdc/train/data",
+  "labels_or_annotations": "/teamspace/studios/this_studio/Hot-Peppers-Company-Computer-Vision/data/exports/acdc/train/labels.json",
+  "num_images": 1600,
+  "num_instances": 9908,
+  "created_at": "2026-02-17T12:10:20.247908+00:00"
+}

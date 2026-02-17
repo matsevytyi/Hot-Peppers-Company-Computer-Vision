@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -13,7 +14,7 @@ sys.path.append(str(REPO_ROOT))
 
 from pipelines.coco_dataset import build_dataloader  # noqa: E402
 from pipelines.contracts import DatasetManifest, EvalConfig, ModelSection  # noqa: E402
-from pipelines.evaluation import evaluate_model  # noqa: E402
+from pipelines.evaluation import evaluate_model_detailed  # noqa: E402
 from pipelines.lora import inject_lora_modules, load_lora_adapters  # noqa: E402
 from pipelines.model_loader import create_model_from_config  # noqa: E402
 from pipelines.training import load_checkpoint, resolve_device  # noqa: E402
@@ -57,6 +58,11 @@ def _load_model(model_cfg_dict: dict, device: str):
     return model, section
 
 
+def _safe_name(value: str) -> str:
+    compact = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+    return compact.strip("_") or "item"
+
+
 def main() -> None:
     args = parse_args()
     config_path = Path(args.config)
@@ -74,6 +80,18 @@ def main() -> None:
     num_workers = int(cfg.get("num_workers", 4))
     conf_threshold = float(cfg.get("conf_threshold", 0.25))
     nms_iou = float(cfg.get("nms_iou", 0.5))
+    power_cfg = dict(cfg.get("power", {}))
+    power_enabled = bool(power_cfg.get("enabled", True))
+    power_backend = str(power_cfg.get("backend", "auto"))
+    power_gpu_index = int(power_cfg.get("gpu_index", 0))
+    power_poll_interval_ms = int(power_cfg.get("poll_interval_ms", 100))
+    warmup_batches = int(power_cfg.get("warmup_batches", 20))
+    telemetry_enabled = bool(power_cfg.get("telemetry", True))
+    telemetry_dir = Path(power_cfg.get("telemetry_dir", str(output_dir / "telemetry")))
+    if not telemetry_dir.is_absolute():
+        telemetry_dir = (REPO_ROOT / telemetry_dir).resolve()
+    if telemetry_enabled:
+        telemetry_dir.mkdir(parents=True, exist_ok=True)
 
     rows = []
     for dataset_cfg in cfg.get("datasets", []):
@@ -93,7 +111,7 @@ def main() -> None:
 
         for model_cfg in cfg.get("models", []):
             model, section = _load_model(model_cfg, device=device)
-            metrics = evaluate_model(
+            result = evaluate_model_detailed(
                 model=model,
                 dataloader=loader,
                 num_classes=section.num_classes,
@@ -101,8 +119,21 @@ def main() -> None:
                 device_preference=device,
                 conf_threshold=conf_threshold,
                 nms_iou=nms_iou,
+                power_enabled=power_enabled,
+                power_backend=power_backend,
+                power_gpu_index=power_gpu_index,
+                power_poll_interval_ms=power_poll_interval_ms,
+                warmup_batches=warmup_batches,
+                collect_telemetry=telemetry_enabled,
             )
-            row = {"dataset": dataset_name, "model": model_cfg["name"], **metrics}
+            row = {"dataset": dataset_name, "model": model_cfg["name"], **result.metrics}
+            if telemetry_enabled:
+                telemetry_file = telemetry_dir / f"{_safe_name(dataset_name)}__{_safe_name(model_cfg['name'])}.jsonl"
+                with open(telemetry_file, "w", encoding="utf-8") as f:
+                    for entry in result.telemetry:
+                        f.write(json.dumps(entry, ensure_ascii=True))
+                        f.write("\n")
+                row["telemetry_file"] = str(telemetry_file)
             rows.append(row)
             print(row)
 

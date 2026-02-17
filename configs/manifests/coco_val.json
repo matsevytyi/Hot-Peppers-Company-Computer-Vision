@@ -1,0 +1,31 @@
+{
+  "dataset_name": "coco_base_val",
+  "source": "fiftyone_zoo",
+  "split": "validation",
+  "class_list": [
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "bus",
+    "train",
+    "truck",
+    "traffic_light"
+  ],
+  "class_map": {
+    "person": 0,
+    "bicycle": 1,
+    "car": 2,
+    "motorcycle": 3,
+    "bus": 4,
+    "train": 5,
+    "truck": 6,
+    "traffic_light": 7
+  },
+  "root_dir": "/teamspace/studios/this_studio/Hot-Peppers-Company-Computer-Vision/data/exports/coco/val",
+  "images_dir": "/teamspace/studios/this_studio/Hot-Peppers-Company-Computer-Vision/data/exports/coco/val/data",
+  "labels_or_annotations": "/teamspace/studios/this_studio/Hot-Peppers-Company-Computer-Vision/data/exports/coco/val/labels.json",
+  "num_images": 1000,
+  "num_instances": 5130,
+  "created_at": "2026-02-13T11:45:44.187361+00:00"
+}

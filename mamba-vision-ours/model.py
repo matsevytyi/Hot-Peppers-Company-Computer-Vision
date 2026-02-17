@@ -1,6 +1,7 @@
 """Initial model: YOLOv11 Detection Head with Mamba-Vision Backbone."""
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import List
@@ -66,17 +67,33 @@ class MambaVisionOurs(nn.Module):
         self.backbone_dims = [80, 160, 320, 640]
 
         if pretrained:
+            candidate_paths = [Path(checkpoint_path)]
+            env_model_path = os.getenv("MAMBA_VISION_MODEL_PATH")
+            if env_model_path:
+                candidate_paths.append(Path(env_model_path))
 
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
-            state_dict = checkpoint.get('model', checkpoint)
+            # mambavision.create_model(pretrained=True) caches checkpoints in /tmp by default.
+            if model_type == "mamba_vision_T2":
+                candidate_paths.append(Path("/tmp/mamba_vision_T2.pth.tar"))
 
-            # remove head weights
-            backbone_state_dict = {k: v for k, v in state_dict.items() if not k.startswith('head.')}
-            print(f"Loaded pretrained backbone tensors: {len(backbone_state_dict)}")
+            chosen = next((p for p in candidate_paths if p.is_file()), None)
+            if chosen is None:
+                print(
+                    "Checkpoint file not found for manual backbone load; "
+                    "keeping weights from create_model(pretrained=True). "
+                    f"Checked: {[str(p) for p in candidate_paths]}"
+                )
+            else:
+                checkpoint = torch.load(str(chosen), map_location=self.device)
+                state_dict = checkpoint.get('model', checkpoint)
 
-            missing, unexpected = self.backbone.load_state_dict(backbone_state_dict, strict=False)
-            print("Missing keys:", missing)
-            print("Unexpected keys:", unexpected)
+                # remove head weights
+                backbone_state_dict = {k: v for k, v in state_dict.items() if not k.startswith('head.')}
+                print(f"Loaded pretrained backbone tensors from {chosen}: {len(backbone_state_dict)}")
+
+                missing, unexpected = self.backbone.load_state_dict(backbone_state_dict, strict=False)
+                print("Missing keys:", missing)
+                print("Unexpected keys:", unexpected)
 
         
         # Detection Neck (FPN/PAN style)
@@ -85,6 +102,29 @@ class MambaVisionOurs(nn.Module):
         
         # Detection Head
         self.head = YOLOv11Head(in_channels=256, num_classes=num_output_classes)
+
+    def _select_neck_features(self, stage_features: List[torch.Tensor]) -> List[torch.Tensor]:
+        """Pick backbone features that match neck expected channels in order."""
+        expected_channels = [int(ch) for ch in self.neck.in_channels]
+        available_channels = [int(feat.shape[1]) for feat in stage_features]
+
+        selected: List[torch.Tensor] = []
+        start_idx = 0
+        for expected in expected_channels:
+            match_idx = None
+            for idx in range(start_idx, len(stage_features)):
+                if int(stage_features[idx].shape[1]) == expected:
+                    match_idx = idx
+                    break
+            if match_idx is None:
+                raise RuntimeError(
+                    "Could not select backbone features for neck. "
+                    f"Expected channels sequence: {expected_channels}, "
+                    f"available stage channels: {available_channels}"
+                )
+            selected.append(stage_features[match_idx])
+            start_idx = match_idx + 1
+        return selected
     
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         """
@@ -101,9 +141,9 @@ class MambaVisionOurs(nn.Module):
         _, stage_features = self.backbone.forward_features(x)
         #print(np.shape(stage_features))
         
-        # features[0]=Stage1, features[1]=Stage2, features[2]=Stage3, features[3]=Stage4
-        # pass the last N stages to the YOLO neck
-        neck_out = self.neck(stage_features[2:4]) 
+        # Select stage features by channel signature expected by neck (e.g. 320, 640).
+        neck_features = self._select_neck_features(stage_features)
+        neck_out = self.neck(neck_features)
         
         head_out = self.head(neck_out)
         
@@ -125,7 +165,8 @@ def check_shapes(model: MambaVisionOurs, input_tensor: torch.Tensor):
         
         # Neck
         print("\n=== NECK ===")
-        neck_out = model.neck(features[2:4])  # stages 3,4
+        neck_features = model._select_neck_features(features)
+        neck_out = model.neck(neck_features)
         for i, n in enumerate(neck_out):
             print(f"Neck output scale {i} shape: {n.shape}")
         

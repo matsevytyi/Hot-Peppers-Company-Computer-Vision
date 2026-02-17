@@ -12,6 +12,8 @@ data:
   export_val_dir: data/exports/bdd_day/val
   max_samples_train: null
   max_samples_val: null
+  local_dataset_dir: "/teamspace/studios/this_studio/datasets/bdd100k:-images-100k"
+  local_dataset_type: COCODetectionDataset
   lora_output_path: checkpoints/lora/bdd_day.safetensors
 
 model:

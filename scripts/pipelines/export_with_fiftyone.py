@@ -24,6 +24,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--time_of_day", type=str, nargs="*", default=None)
     parser.add_argument("--local_dataset_dir", type=str, default=None)
     parser.add_argument("--local_dataset_type", type=str, default="COCODetectionDataset")
+    parser.add_argument("--fallback_policy", choices=["strict", "permissive", "off"], default="strict")
+    parser.add_argument("--zoo_load_retries", type=int, default=2)
     return parser.parse_args()
 
 
@@ -47,8 +49,10 @@ def main() -> None:
         time_of_day=args.time_of_day,
         local_dataset_dir=args.local_dataset_dir,
         local_dataset_type=args.local_dataset_type,
+        fallback_policy=args.fallback_policy,
+        zoo_load_retries=args.zoo_load_retries,
     )
-    print("✅ Export completed")
+    print("Export completed")
     print(f"Manifest: {manifest_path}")
     print(f"Images: {manifest.num_images}")
     print(f"Instances: {manifest.num_instances}")
