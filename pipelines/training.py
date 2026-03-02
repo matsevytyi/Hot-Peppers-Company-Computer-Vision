@@ -80,6 +80,7 @@ def _run_epoch(
     grad_clip_norm: float,
     max_steps: Optional[int],
     is_train: bool,
+    delta_tracker=None,
 ) -> EpochMetrics:
     if is_train:
         model.train()
@@ -105,7 +106,11 @@ def _run_epoch(
             with _autocast_context(device, precision):
                 outputs = model(images)
                 losses = criterion(outputs, targets)
-                loss_value = losses["loss"]
+
+            if delta_tracker is not None and is_train:
+                delta_tracker.step(step)
+
+            loss_value = losses["loss"]
 
             if is_train and optimizer is not None:
                 if scaler.is_enabled():
@@ -148,6 +153,7 @@ def fit_model(
     num_classes: int,
     run_mode: str = "full",
     optimizer: Optional[torch.optim.Optimizer] = None,
+    delta_tracker=None,
 ) -> Dict[str, List[EpochMetrics]]:
     """Run pilot/full training and persist top-k/last checkpoints."""
     device = resolve_device(train_cfg.device)
@@ -185,6 +191,7 @@ def fit_model(
             grad_clip_norm=train_cfg.grad_clip_norm,
             max_steps=train_steps,
             is_train=True,
+            delta_tracker=delta_tracker,
         )
         val_metrics = _run_epoch(
             model=model,
@@ -199,6 +206,9 @@ def fit_model(
         )
         history["train"].append(train_metrics)
         history["val"].append(val_metrics)
+
+        if delta_tracker is not None:
+            delta_tracker.end_epoch(epoch)
 
         if scheduler is not None:
             scheduler.step()
