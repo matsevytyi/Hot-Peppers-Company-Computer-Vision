@@ -217,7 +217,7 @@ def fit_model(
             model=model,
             optimizer=optimizer,
             epoch=epoch,
-            metrics={"train_loss": train_metrics.loss, "val_loss": val_metrics.loss},
+            metrics={"train_loss": train_metrics, "val_loss": val_metrics},
         )
 
         epoch_path = output_path.with_name(f"{output_path.stem}_epoch{epoch + 1:03d}.ckpt")

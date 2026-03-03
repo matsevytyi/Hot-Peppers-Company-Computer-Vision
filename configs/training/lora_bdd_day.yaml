@@ -12,7 +12,7 @@ data:
   export_val_dir: data/exports/bdd_day/val
   max_samples_train: null
   max_samples_val: null
-  local_dataset_dir: "/teamspace/studios/this_studio/datasets/bdd100k:-images-100k"
+  local_dataset_dir: /teamspace/studios/this_studio/datasets/bdd100k
   local_dataset_type: COCODetectionDataset
   lora_output_path: checkpoints/lora/bdd_day.safetensors
 
@@ -26,9 +26,9 @@ model:
 
 train:
   epochs: 12
-  batch_size: 8
+  batch_size: 32
   num_workers: 4
-  lr: 0.0002
+  lr: 0.001
   weight_decay: 0.0001
   scheduler: cosine
   pilot_steps: 5
@@ -47,7 +47,11 @@ lora:
   rank: 8
   alpha: 16
   dropout: 0.05
-  target_rule: all_linear_except_head
+  target_rule: 
+    - "levels.3.blocks.1.mlp.fc1"
+    - "levels.3.blocks.2.mlp.fc1"
+    - "levels.3.blocks.0.mlp.fc1"
+    - "levels.3.blocks.3.mlp.fc1"
 
 freeze:
   backbone_base: true

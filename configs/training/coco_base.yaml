@@ -15,7 +15,7 @@ data:
 model:
   model_file: mamba-vision-ours/model.py
   backbone: mamba_vision_T2
-  num_classes: 8
+  num_classes: 32
   pretrained: true
   checkpoint_path: mambavision_tiny2_1k.pth.tar
   base_checkpoint: ""
@@ -24,7 +24,7 @@ train:
   epochs: 30
   batch_size: 8
   num_workers: 4
-  lr: 0.0001
+  lr: 0.0004
   weight_decay: 0.0001
   scheduler: cosine
   pilot_steps: 5
