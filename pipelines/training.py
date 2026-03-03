@@ -159,7 +159,20 @@ def fit_model(
     device = resolve_device(train_cfg.device)
     model = model.to(device)
 
+    def force_grad_flow(module, input, output):
+        if isinstance(output, torch.Tensor):
+            output.requires_grad_(True)
+        return output
+    
+    for module in model.modules():
+        if isinstance(module, (torch.nn.Conv2d, torch.nn.Linear)):
+            module.register_forward_hook(force_grad_flow)
+            break
+
     if optimizer is None:
+        trainable = [p for p in model.parameters() if p.requires_grad]
+        # if not trainable:
+        #     raise RuntimeError("No trainable parameters detected. Did you inject LoRA or freeze everything?")
         optimizer = torch.optim.AdamW(
             filter(lambda p: p.requires_grad, model.parameters()),
             lr=train_cfg.lr,

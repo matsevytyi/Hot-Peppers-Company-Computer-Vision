@@ -111,8 +111,8 @@ class MultiScaleYoloLoss(nn.Module):
                 target_cls_pos = cls_target.permute(0, 2, 3, 1)[pos_mask]
                 cls_loss = self.cls_criterion(pred_cls, target_cls_pos)
             else:
-                box_loss = torch.tensor(0.0, device=out.device)
-                cls_loss = torch.tensor(0.0, device=out.device)
+                box_loss = (out * 0.0).sum()
+                cls_loss = (out * 0.0).sum()
 
             weight = self.scale_weights[min(scale_idx, len(self.scale_weights) - 1)]
             total_obj = total_obj + obj_loss * weight

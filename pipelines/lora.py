@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -54,13 +54,31 @@ class LoRALinear(nn.Module):
     def out_features(self) -> int:
         return self.base.out_features
 
-
-def _matches_target_rule(module_name: str, target_rule: str) -> bool:
-    lower = module_name.lower()
+def _matches_target_rule(module_name: str, target_rule) -> bool:
+    # Base rule
     if target_rule == "all_linear_except_head":
         blocked_tokens = ("head", "classifier", "fc_out", "logits")
-        return not any(token in lower for token in blocked_tokens)
-    return True
+        return not any(token in module_name.lower() for token in blocked_tokens)
+    
+    # Ignoe datatype and extract laa layers
+    try:
+        if isinstance(target_rule, str):
+            # YAML list as one line
+            targets = [t.strip(" []'\"") for t in target_rule.split(",")]
+        else:
+            # Custom YAML list from config
+            targets = [str(t).strip(" []'\"") for t in target_rule]
+    except Exception:
+        return False
+
+    # Verify who matches
+    for t in targets:
+        if t and t in module_name:
+            return True
+            
+    return False
+
+
 
 
 def inject_lora_modules(
