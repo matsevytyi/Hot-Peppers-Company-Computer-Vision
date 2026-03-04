@@ -22,10 +22,10 @@ model:
   num_classes: 8
   pretrained: false
   checkpoint_path: ""
-  base_checkpoint: checkpoints/base/coco_base.ckpt
+  base_checkpoint: checkpoints/base/coco_base_epoch009.ckpt
 
 train:
-  epochs: 12
+  epochs: 7
   batch_size: 32
   num_workers: 4
   lr: 0.001
@@ -39,7 +39,7 @@ train:
   grad_clip_norm: 1.0
 
 ckpt:
-  output_path: checkpoints/lora/bdd_day_train_state.ckpt
+  output_path: checkpoints/lora/bdd_day_train_blanket.ckpt
   save_top_k: 3
   save_last: true
 
@@ -47,11 +47,7 @@ lora:
   rank: 8
   alpha: 16
   dropout: 0.05
-  target_rule: 
-    - "levels.3.blocks.1.mlp.fc1"
-    - "levels.3.blocks.2.mlp.fc1"
-    - "levels.3.blocks.0.mlp.fc1"
-    - "levels.3.blocks.3.mlp.fc1"
+  target_rule: all_linear_except_head
 
 freeze:
   backbone_base: true
