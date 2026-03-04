@@ -13,7 +13,7 @@ import torch.nn as nn
 from safetensors.torch import load_file
 
 from .adapters.lora import inject_lora_modules, LoRALinear
-from .adapters.router import _image_stats, RouterMLP
+from .adapters.router import RouterMLP
 
 from .base_model import MambaVisionOurs
 
@@ -31,6 +31,7 @@ class MoEMambaVision(nn.Module):
         for k, v in first_state.items():
             if k.endswith("lora_A"):
                 rank = v.shape[0]
+                print("""Detected LoRA rank: {}""".format(rank))
                 break
                 
         inject_lora_modules(
