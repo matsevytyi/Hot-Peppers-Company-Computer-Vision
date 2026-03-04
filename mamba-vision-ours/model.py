@@ -13,6 +13,11 @@ import torch.nn as nn
 try:
     from .yolov11detection import YOLOv11Head
     from .yolov11detection import YOLONeck
+    try:
+        from .lora import load_lora_adapters
+    except Exception:
+        # import may fail during older import paths; keep import optional
+        load_lora_adapters = None  # type: ignore
 except ImportError:
     from yolov11detection import YOLOv11Head
     from yolov11detection import YOLONeck
@@ -148,6 +153,15 @@ class MambaVisionOurs(nn.Module):
         head_out = self.head(neck_out)
         
         return head_out
+
+    def load_lora_adapter(self, adapter_path: str, strict: bool = False):
+        """Load LoRA adapter tensors into the backbone.
+
+        Returns (missing, unexpected) as returned by `load_state_dict`.
+        """
+        if load_lora_adapters is None:
+            raise RuntimeError("LoRA utilities are not available in this runtime")
+        return load_lora_adapters(self.backbone, adapter_path, strict=strict)
     
 
 # utils
