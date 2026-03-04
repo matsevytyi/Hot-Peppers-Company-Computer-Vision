@@ -13,23 +13,47 @@ import torch.nn as nn
 from safetensors.torch import load_file
 
 from .adapters.lora import inject_lora_modules, LoRALinear
-from .adapters.router import RouterMLP
+from .adapters.router import RouterMLP, _image_stats
 
 from .base_model import MambaVisionOurs, check_shapes
 
+
 class MoEMambaVision(nn.Module):
+    """Wrapper that radds router to inject LoRA adapters at a runtime."""
+
     def __init__(self, base_model: MambaVisionOurs, adapter_paths: Dict[str, str], target_rule: str = "all_linear_except_head"):
         super().__init__()
         self.model = base_model
         self.router = RouterMLP()
         self.domains = list(adapter_paths.keys())
 
-        # Inject the multi-adapter LoRA layers FIRST
+        # Load all raw checkpoints into memory first
+        raw_states = {}
+        for domain, path in adapter_paths.items():
+            print(f"Loading checkpoint for domain '{domain}' from {path}")
+            ckpt = torch.load(path, map_location="cpu", weights_only=False)
+            
+            # If it's a standard PyTorch/Lightning save dict, extract the model weights
+            if "model_state_dict" in ckpt:
+                state = ckpt["model_state_dict"]
+            elif "state_dict" in ckpt:
+                state = ckpt["state_dict"]
+            else:
+                state = ckpt # Assume it's a raw weight dict
+                
+            # Filter to keep ONLY LoRA keys
+            lora_state = {k: v for k, v in state.items() if "lora_" in k}
+            if not lora_state:
+                raise ValueError(f"No LoRA weights found in checkpoint: {path}")
+                
+            raw_states[domain] = lora_state
+
+        # Inject the multi-adapter LoRA layers into the base model
         # Infer rank from first adapter
-        first_state = load_file(str(list(adapter_paths.values())[0]))
+        first_state = next(iter(raw_states.values()))
         rank = 8
         for k, v in first_state.items():
-            if k.endswith("lora_A"):
+            if "lora_A" in k:
                 rank = v.shape[0]
                 print("""Detected LoRA rank: {}""".format(rank))
                 break
@@ -43,10 +67,8 @@ class MoEMambaVision(nn.Module):
             target_rule=target_rule
         )
 
-        # Load the state dicts directly into the respective parameter dicts ONCE
-        for domain, path in adapter_paths.items():
-            state = load_file(str(path))
-            # Rename keys from saved 'lora_A' to our new 'lora_A.domain' format
+        # 3. Format and load the state dicts into the new ParameterDict structure
+        for domain, state in raw_states.items():
             domain_state = {}
             for k, v in state.items():
                 if "lora_A" in k:
@@ -55,8 +77,7 @@ class MoEMambaVision(nn.Module):
                     domain_state[k.replace("lora_B", f"lora_B.{domain}")] = v
             
             # Load this specific domain's weights into the backbone
-            self.model.backbone.load_state_dict(domain_state, strict=False)
-
+            missing, unexpected = self.model.backbone.load_state_dict(domain_state, strict=False)
 
     def _set_active_domain(self, domain_idx: int):
         """Helper to tell all LoRA layers which domain to use for the upcoming forward pass"""
@@ -67,11 +88,9 @@ class MoEMambaVision(nn.Module):
                 module.active_domain_idx = domain_idx
 
     def forward(self, x: torch.Tensor) -> Tuple[List[torch.Tensor], torch.Tensor]:
-
-        domain_probabilities = self.router(x)
-        top_domains = domain_probabilities.argmax(dim=1) # [Batch_size]
+        probs = self.router(x)
+        top_domains = probs.argmax(dim=1) # [Batch_size]
         
-        # Determine number of output scales
         batch_outputs = [None] * x.shape[0]
         
         # Group batch by domain to preserve parallel processing
@@ -101,7 +120,7 @@ class MoEMambaVision(nn.Module):
             scale_tensors = [out[scale_idx] for out in batch_outputs]
             final_outputs.append(torch.cat(scale_tensors, dim=0))
             
-        return final_outputs, domain_probabilities
+        return final_outputs, probs
 
 # utils   
 def check_shapes(moe_model: MoEMambaVision, input_tensor: torch.Tensor):
@@ -113,7 +132,7 @@ def check_shapes(moe_model: MoEMambaVision, input_tensor: torch.Tensor):
     moe_model.eval()
     
     # 0. Verify base model
-    check_shapes(moe_model.model, input_tensor)
+    #check_shapes(moe_model.model, input_tensor)
     
     # 1. Verify LoRA Injection
     print("\n[1] LORA INJECTION:")
@@ -159,7 +178,7 @@ def check_shapes(moe_model: MoEMambaVision, input_tensor: torch.Tensor):
     # 3. Test the Router standalone
     print("\n[2] ROUTER:")
     with torch.no_grad():
-        stats = moe_model.router._image_stats(input_tensor)
+        stats = _image_stats(input_tensor)
         print(f"Image Stats shape: {stats.shape} (Expected: [Batch, 4])")
         
         probs = moe_model.router(input_tensor)
@@ -196,8 +215,7 @@ def check_shapes(moe_model: MoEMambaVision, input_tensor: torch.Tensor):
 
 
 # ==========================================
-# Mock Loader implementation
-# (This should ideally live in pipelines/model_loader.py)
+# Mock Loader implementation and Test Script
 # ==========================================
 
 def build_moe_from_config(cfg) -> nn.Module:
@@ -207,45 +225,112 @@ def build_moe_from_config(cfg) -> nn.Module:
     
     # 1. Build Base
     base_model = MambaVisionOurs(
-        model_type=cfg.model.type,
+        model_type=cfg.model.backbone,
         device=device,
         num_output_classes=cfg.model.num_classes,
-        pretrained=False # Set to false for testing
+        pretrained=False # Set to false for testing shapes
     ).to(device)
 
-    # 2. Define Mock Adapter paths (for testing)
-    adapter_paths = {
-        "day": "",
-        "night": "",
-        "adverse": ""
-    }
+    # 2. Check if config requests MoE routing
+    if hasattr(cfg.model, "moe_adapters") and cfg.model.moe_adapters:
+        print("\n=== MoE CONFIGURATION DETECTED ===")
+        print(f"Found adapters for domains: {list(cfg.model.moe_adapters.keys())}")
+        print("Wrapping base model with MoEMambaVision router...")
+        
+        # In a real environment, you would use load_moe_wrapper_class from model_loader.py
+        # Here we just instantiate the class directly since it's in the same file
+        moe_model = MoEMambaVision(
+            base_model=base_model,
+            adapter_paths=cfg.model.moe_adapters,
+            target_rule="all_linear_except_head"
+        ).to(device)
+        return moe_model
 
-    print("Building MoE Wrapper...")
-    moe_model = MoEMambaVision(
-        base_model=base_model,
-        adapter_paths=adapter_paths,
-        target_rule="all_linear_except_head"
-    ).to(device)
+    print("No MoE configuration found. Returning base model.")
+    return base_model
 
-    return moe_model
 
 if __name__ == "__main__":
-    # Mock config object for testing
+
+    from pathlib import Path
+    
+    # Get the absolute path to 'Hot-Peppers-Company-Computer-Vision'
+    repo_root = Path(__file__).resolve().parent.parent 
+    if str(repo_root) not in sys.path:
+        sys.path.insert(0, str(repo_root))
+    
+    # Optional: explicitly set the package name so relative imports resolve
+    __package__ = "mamba-vision-ours"
+
+    # 1. Create a mock config that perfectly mimics YAML structure
+    class MockModelSection:
+        model_file = "mamba-vision-ours/model.py"
+        backbone = "mamba_vision_T2"
+        num_classes = 8
+        pretrained = False
+        checkpoint_path = ""
+        base_checkpoint = "checkpoints/base/coco_base_epoch009.ckpt"
+        
+        # MOCK ADAPTER PATHS
+        moe_adapters = {
+            "day": "checkpoints/lora/bdd_day_train_blanket_epoch007.ckpt",
+            "night": "checkpoints/lora/bdd_night_train_blanket_epoch007.ckpt",
+            "adverse": "checkpoints/lora/acdc_train_blanket_epoch012.ckpt"
+        }
+
     class MockConfig:
-        class model:
-            type = "mamba_vision_T2"
-            num_classes = 80
+        model = MockModelSection()
     
     cfg = MockConfig()
     
     try:
+        # Build the model using the mock config
         model = build_moe_from_config(cfg)
         
         device = next(model.parameters()).device
         dummy_input = torch.randn(8, 3, 224, 224).to(device) # Batch of 8
         
+        # Run the shape checks
         check_shapes(model, dummy_input)
         
+    except FileNotFoundError as e:
+        print(f"\n[TEST FAILED - FILE NOT FOUND]: {e}")
+        print("-> To run this test locally, ensure the 'moe_adapters' paths in MockModelSection point to actual .ckpt files!")
     except Exception as e:
-        print(f"\nFailed to run test: {e}")
-        print("Note: If it failed finding adapters, make sure you mock the load_file call for testing!")
+        print(f"\n[TEST FAILED]: {e}")
+
+    # EXAMPLE OF OUTPUT
+
+    # Building base model on cuda...
+
+    # === MoE CONFIGURATION DETECTED ===
+    # Found adapters for domains: ['day', 'night', 'adverse']
+    # Wrapping base model with MoEMambaVision router...
+    # Loading checkpoint for domain 'day' from checkpoints/lora/bdd_day_train_blanket_epoch007.ckpt
+    # Loading checkpoint for domain 'night' from checkpoints/lora/bdd_night_train_blanket_epoch007.ckpt
+    # Loading checkpoint for domain 'adverse' from checkpoints/lora/acdc_train_blanket_epoch012.ckpt
+    # Detected LoRA rank: 8
+
+    # [1] LORA INJECTION:
+    # Total LoRA layers found: 76
+    # First 3 injected at: ['levels.2.blocks.0.mixer.in_proj', 'levels.2.blocks.0.mixer.x_proj', 'levels.2.blocks.0.mixer.dt_proj'] ...
+    # Last 3 injected at: ['levels.3.blocks.3.mixer.proj', 'levels.3.blocks.3.mlp.fc1', 'levels.3.blocks.3.mlp.fc2']
+
+    # [2] ROUTER:
+    # Image Stats shape: torch.Size([8, 4]) (Expected: [Batch, 4])
+    # Router Probs shape: torch.Size([8, 3]) (Expected: [Batch, 3])
+    # Sample Probs: [0.4196569621562958, 0.3114374577999115, 0.26890552043914795]
+
+    # [3] FULL MoE FORWARD PASS:
+    # MoE returned outputs of type: <class 'list'>
+    # Number of detection scales: 3
+    #   Scale 1 shape: torch.Size([8, 13, 28, 28])
+    #   Scale 2 shape: torch.Size([8, 13, 14, 14])
+    #   Scale 3 shape: torch.Size([8, 13, 7, 7])
+
+    # [4] LORA TENSOR FLOW (From Hook):
+    # Layer: levels.2.blocks.0.mixer.in_proj
+    #   Input  shape: torch.Size([1, 196, 320])
+    #   Output shape: torch.Size([1, 196, 320])
+
+    # === ALL TESTS PASSED SUCCESSFULLY ===
