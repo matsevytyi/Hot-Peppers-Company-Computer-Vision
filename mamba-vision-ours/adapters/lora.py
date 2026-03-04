@@ -18,9 +18,9 @@ from safetensors.torch import load_file, save_file
 
 
 class LoRALinear(nn.Module):
-    """LoRA wrapper for a linear layer."""
+    """Multi-Adapter LoRA wrapper for a linear layer."""
 
-    def __init__(self, base: nn.Linear, rank: int = 8, alpha: int = 16, dropout: float = 0.05):
+    def __init__(self, base: nn.Linear, domains: List[str], rank: int = 8, alpha: int = 16, dropout: float = 0.05):
         super().__init__()
         if rank <= 0:
             raise ValueError("rank must be > 0")
@@ -33,16 +33,46 @@ class LoRALinear(nn.Module):
         for param in self.base.parameters():
             param.requires_grad = False
 
-        self.lora_A = nn.Parameter(torch.zeros(rank, base.in_features))
-        self.lora_B = nn.Parameter(torch.zeros(base.out_features, rank))
-        nn.init.kaiming_uniform_(self.lora_A, a=5 ** 0.5)
-        nn.init.zeros_(self.lora_B)
+        self.domains = domains
+        
+        # Create a dictionary of parameters for EACH domain
+        self.lora_A = nn.ParameterDict()
+        self.lora_B = nn.ParameterDict()
+        
+        for domain in domains:
+            A = nn.Parameter(torch.zeros(rank, base.in_features))
+            B = nn.Parameter(torch.zeros(base.out_features, rank))
+            nn.init.kaiming_uniform_(A, a=5 ** 0.5)
+            nn.init.zeros_(B)
+            self.lora_A[domain] = A
+            self.lora_B[domain] = B
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, domain_idx: int = None, domain_probs: torch.Tensor = None) -> torch.Tensor:
         base_out = self.base(x)
-        lora = F.linear(self.dropout(x), self.lora_A)
-        lora = F.linear(lora, self.lora_B)
-        return base_out + lora * self.scaling
+        
+        # If no routing is provided, just return base (shouldn't happen in MoE)
+        if domain_idx is None and domain_probs is None:
+            return base_out
+            
+        dropped_x = self.dropout(x)
+        
+        # HARD ROUTING: If a specific domain index is given
+        if domain_idx is not None:
+            domain = self.domains[domain_idx]
+            lora = F.linear(dropped_x, self.lora_A[domain])
+            lora = F.linear(lora, self.lora_B[domain])
+            return base_out + lora * self.scaling
+            
+        # SOFT ROUTING: If probabilities are given (optional, for soft-MoE)
+        if domain_probs is not None:
+            lora_out = 0
+            for i, domain in enumerate(self.domains):
+                prob = domain_probs[i]
+                if prob > 0:
+                    l = F.linear(dropped_x, self.lora_A[domain])
+                    l = F.linear(l, self.lora_B[domain])
+                    lora_out += l * prob
+            return base_out + lora_out * self.scaling
 
     @property
     def weight(self) -> torch.Tensor:
@@ -61,6 +91,7 @@ class LoRALinear(nn.Module):
         return self.base.out_features
 
 
+
 def _matches_target_rule(module_name: str, target_rule: str) -> bool:
     lower = module_name.lower()
     if target_rule == "all_linear_except_head":
@@ -72,6 +103,7 @@ def _matches_target_rule(module_name: str, target_rule: str) -> bool:
 
 def inject_lora_modules(
     root: nn.Module,
+    domains: List[str],
     rank: int,
     alpha: int,
     dropout: float,
@@ -84,7 +116,7 @@ def inject_lora_modules(
         for child_name, child in list(module.named_children()):
             fq_name = f"{prefix}.{child_name}" if prefix else child_name
             if isinstance(child, nn.Linear) and _matches_target_rule(fq_name, target_rule):
-                setattr(module, child_name, LoRALinear(child, rank=rank, alpha=alpha, dropout=dropout))
+                setattr(module, child_name, LoRALinear(child, domains=domains, rank=rank, alpha=alpha, dropout=dropout))
                 replaced.append(fq_name)
                 continue
             _inject(child, fq_name)
