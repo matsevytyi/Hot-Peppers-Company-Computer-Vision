@@ -29,7 +29,7 @@ class RouterMLP(nn.Module):
         return probs
     
 # computes quick image stats
-def _image_stats(self, images: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+def _image_stats(images: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     # images: (B,3,H,W), on-device
     x = images.float()
     if x.max() > 2.0:
@@ -44,17 +44,25 @@ def _image_stats(self, images: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     # saturation: (max-min)/(max+eps) per pixel, then mean
     mx = x.max(dim=1)[0]
     mi = x.min(dim=1)[0]
-    saturation = ((mx - mi) / (mx + self.eps)).mean(dim=(1, 2))
+    saturation = ((mx - mi) / (mx + eps)).mean(dim=(1, 2))
 
-    # high-frequency energy: Laplacian variance per image
+    # high-frequency energy – Laplacian variance per image
     B, C, H, W = x.shape
     device = x.device
-    kernel = torch.tensor([[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]], device=device, dtype=x.dtype)
+    kernel = torch.tensor(
+        [[0.0, 1.0, 0.0],
+         [1.0, -4.0, 1.0],
+         [0.0, 1.0, 0.0]],
+        device=device, dtype=x.dtype,
+    )
+    # shape: (C,1,3,3) for depthwise conv
     kernel = kernel.view(1, 1, 3, 3).repeat(C, 1, 1, 1)
-    pad = 1
-    hf = F.conv2d(x.reshape(B * C, 1, H, W), kernel, padding=pad, groups=C)
-    hf = hf.reshape(B, C, H, W)
+
+    # depthwise conv over original (B,C,H,W)
+    hf = F.conv2d(x, kernel, padding=1, groups=C)   # <— no reshape, groups=C is correct
     hf_energy = hf.var(dim=(1, 2, 3))
 
-    stats = torch.stack([brightness, contrast, hf_energy, saturation], dim=1)
-    return stats
+    return torch.stack([brightness, 
+                        contrast, 
+                        hf_energy, 
+                        saturation], dim=1)
