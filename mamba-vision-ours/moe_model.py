@@ -12,10 +12,17 @@ import torch.nn as nn
 
 from safetensors.torch import load_file
 
-from .adapters.lora import inject_lora_modules, LoRALinear
-from .adapters.router import RouterMLP, _image_stats
+try:
+    from .adapters.lora import inject_lora_modules, LoRALinear
+    from .adapters.router import RouterMLP, _image_stats
 
-from .base_model import MambaVisionOurs, check_shapes
+    from .base_model import MambaVisionOurs, check_shapes
+
+except ImportError:
+    from adapters.lora import inject_lora_modules, LoRALinear
+    from adapters.router import RouterMLP, _image_stats
+
+    from base_model import MambaVisionOurs, check_shapes
 
 
 class MoEMambaVision(nn.Module):

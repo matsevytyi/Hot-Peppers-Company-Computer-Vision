@@ -171,6 +171,7 @@ class ModelSection:
     moe_router_weights: str = ""
     moe_adapters: Optional[Dict[str, str]] = field(default_factory=dict)
     model_file: str = "mamba-vision-ours/model.py"
+    moe_model_file: str = "mamba-vision-ours/moe_model.py"
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "ModelSection":

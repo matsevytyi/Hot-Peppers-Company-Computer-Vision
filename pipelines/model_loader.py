@@ -37,12 +37,12 @@ def load_mamba_vision_class(model_file: str | Path) -> Type:
     return module.MambaVisionOurs
 
 def load_moe_wrapper_class(model_file: str | Path) -> Type:
-    """Dynamically load the MoE wrapper class from the same directory."""
-    path = Path(model_file).resolve().parent / "moe_model.py"
+    """Load MoEMambaVision from moe_model.py next to base_model.py."""
+    path = Path(model_file).resolve()
     if not path.exists():
-        raise FileNotFoundError(f"MoE model file not found: {path}")
-        
-    module = _load_module_from_file("moe_model_runtime", path)
+        raise FileNotFoundError(f"MOE wrapper for Mamba-Vision model file not found: {path}")
+
+    module = _load_module_from_file("mamba_vision_moe_runtime", path)
     if not hasattr(module, "MoEMambaVision"):
         raise AttributeError(f"{path} does not export MoEMambaVision")
     return module.MoEMambaVision
@@ -63,7 +63,7 @@ def create_model_from_config(model_cfg: ModelSection, device: str):
     # MoE
     if model_cfg.moe_adapters:  # already a dict from contracts.ModelSection
         print("MoE configuration detected. Wrapping base model...")
-        moe_cls = load_moe_wrapper_class(model_cfg.model_file)
+        moe_cls = load_moe_wrapper_class(model_cfg.moe_model_file)
         adapter_paths = dict(model_cfg.moe_adapters)
 
         model = moe_cls(
