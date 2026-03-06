@@ -90,15 +90,17 @@ python scripts/pipelines/export_with_fiftyone.py \
 
 Open `notebooks/` and run in this exact order:
 
+0. `notebooks/01_variance_analysis.ipynb` (determine which exactly layers need modifications)
 1. `notebooks/11_train_coco_base.ipynb`
 2. `notebooks/12_train_lora_bdd_day.ipynb`
 3. `notebooks/13_train_lora_bdd_night.ipynb`
 4. `notebooks/14_train_lora_acdc.ipynb`
-5. `notebooks/20_eval_shared.ipynb`
+5. `notebooks/15_train_router_combined.ipynb`
+6. `notebooks/20_eval_shared.ipynb`
 
 ## 4) How to run each training notebook correctly
 
-For each of the 4 training notebooks:
+For each of the 5 training notebooks:
 
 1. Check `CONFIG_PATH` (must point to the matching `configs/training/*.yaml`).
 2. First set `RUN_MODE = 'pilot'` and run all cells.
@@ -112,7 +114,8 @@ Important: notebooks enforce a pilot-before-full flow. If `RUN_MODE='pilot'`, fu
 1. `11_train_coco_base.ipynb` must finish first and create:
    `checkpoints/base/coco_base.ckpt`
 2. Only then run LoRA notebooks (12/13/14), because they depend on that base checkpoint.
-3. Run `20_eval_shared.ipynb` only after base checkpoint + all 3 LoRA adapters exist.
+3. Only then run router notebook (15) because it depends on LoRA and base checkpoint (it is trained separately, but is constructed as part of full MoE moel)
+4. Run `20_eval_shared.ipynb` only after base checkpoint + all 3 LoRA adapters exist.
 
 ## 6) Expected outputs after full run
 
