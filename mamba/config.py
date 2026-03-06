@@ -27,6 +27,7 @@ class ModelConfig:
     output_last_only: bool = True
     freeze_backbone: bool = False
     pretrained: bool = True
+    mamba_type: str = "vision"  # "standard" or "vision"
 
 
 @dataclass

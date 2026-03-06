@@ -15,11 +15,15 @@ albumentations>=1.3.0
 pillow>=10.0.0
 xmltodict>=0.13.0
 
+# torchinfo – for model.summary
+
 # Utilities
 numpy>=1.24.0
 pandas>=2.0.0
 tqdm>=4.65.0
 pyyaml>=6.0
+einops>=0.8.0
+safetensors>=0.4.5
 
 # Visualization
 matplotlib>=3.7.0
@@ -30,7 +34,14 @@ wandb>=0.15.0
 
 # Model zoo
 timm>=0.9.0
+pycocotools>=2.0.8
+fiftyone>=0.25.0
+# Optional for Frames-per-Watt via NVML:
+# pynvml>=11.5.0
 
 # Development
 jupyter>=1.0.0
 ipywidgets>=8.0.0
+
+# then install pip install -e MambaVisionReengineering
+#TODO: switch to setup.py/setup.sh

@@ -121,4 +121,4 @@ if __name__ == "__main__":
 
     print("✅ Splits saved:")
     for name, split in splits.items():
-        print(f"  {name}: {len(split['uav_types'])} UAV types")
+        print(f"  {name}: {len(split['items'])} items")

@@ -1,0 +1,55 @@
+run_name: lora_bdd_day
+
+data:
+  source: fiftyone_zoo
+  zoo_name: bdd100k
+  split_train: train
+  split_val: validation
+  time_of_day: [daytime]
+  manifest_train: configs/manifests/bdd_day_train.json
+  manifest_val: configs/manifests/bdd_day_val.json
+  export_train_dir: data/exports/bdd_day/train
+  export_val_dir: data/exports/bdd_day/val
+  max_samples_train: null
+  max_samples_val: null
+  local_dataset_dir: /teamspace/studios/this_studio/datasets/bdd100k
+  local_dataset_type: COCODetectionDataset
+  lora_output_path: checkpoints/lora/bdd_day.safetensors
+
+model:
+  model_file: mamba-vision-ours/model.py
+  backbone: mamba_vision_T2
+  num_classes: 8
+  pretrained: false
+  checkpoint_path: ""
+  base_checkpoint: checkpoints/base/coco_base_epoch009.ckpt
+
+train:
+  epochs: 7
+  batch_size: 32
+  num_workers: 4
+  lr: 0.001
+  weight_decay: 0.0001
+  scheduler: cosine
+  pilot_steps: 5
+  pilot_val_steps: 2
+  precision: fp16
+  device: cuda
+  image_size: 640
+  grad_clip_norm: 1.0
+
+ckpt:
+  output_path: checkpoints/lora/bdd_day_train_blanket.ckpt
+  save_top_k: 3
+  save_last: true
+
+lora:
+  rank: 8
+  alpha: 16
+  dropout: 0.05
+  target_rule: all_linear_except_head
+
+freeze:
+  backbone_base: true
+  neck: true
+  head: true

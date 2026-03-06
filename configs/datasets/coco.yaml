@@ -1,0 +1,13 @@
+name: coco
+source: fiftyone_zoo
+zoo_name: coco-2017
+splits:
+  train: train
+  val: validation
+class_policy: common_8
+manifests:
+  train: configs/manifests/coco_train.json
+  val: configs/manifests/coco_val.json
+exports:
+  train: data/exports/coco/train
+  val: data/exports/coco/val

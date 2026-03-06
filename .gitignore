@@ -18,10 +18,20 @@ venv/
 data/**/raw/
 data/**/processed/
 data/external/
+data/exports/
 
 # Outputs
 outputs/
 wandb/
+checkpoints/base/*.ckpt
+checkpoints/lora/*.ckpt
+checkpoints/lora/old/*.ckpt
+checkpoints/lora/*.safetensors
+results/shared_eval/
+results/coco_base/*
+results/lora_acdc_adverse/*
+results/lora_bdd_day/*
+results/lora_bdd_night/*
 
 # Notebooks
 *.nbconvert.ipynb

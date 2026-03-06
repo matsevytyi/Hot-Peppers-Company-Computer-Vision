@@ -1,0 +1,26 @@
+{
+  "name": "acdc_rgb_anon_images",
+  "source": "kaggle:njayadithya/rgb-anon-trainvaltest",
+  "type": "image_directory",
+  "export_media": "symlink",
+  "generated_at_utc": "2026-02-17T11:57:33.682687+00:00",
+  "root_dataset_dir": "datasets/acdc/rgb_anon_trainvaltest/rgb_anon",
+  "splits": {
+    "train": {
+      "export_dir": "data/exports/acdc_rgb_anon/train",
+      "num_images": 1600,
+      "dataset_name": "acdc_rgb_anon_train"
+    },
+    "val": {
+      "export_dir": "data/exports/acdc_rgb_anon/val",
+      "num_images": 406,
+      "dataset_name": "acdc_rgb_anon_val"
+    },
+    "test": {
+      "export_dir": "data/exports/acdc_rgb_anon/test",
+      "num_images": 2000,
+      "dataset_name": "acdc_rgb_anon_test"
+    }
+  },
+  "note": "This archive contains RGB anonymized images only (no detection annotations)."
+}
