@@ -6,6 +6,7 @@ import ast
 import json
 import re
 import socket
+import tempfile
 import time
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple
@@ -230,14 +231,19 @@ def _normalize_acdc_split_name(split: str) -> str:
     return value
 
 
-def _resolve_acdc_detection_json_path(dataset_dir: str, split: str) -> Path:
+def _resolve_acdc_detection_json_paths(dataset_dir: str, split: str) -> List[Path]:
     split_name = _normalize_acdc_split_name(split)
-    json_by_split = {
+    top_level_by_split = {
         "train": "instancesonly_train_gt_detection.json",
         "val": "instancesonly_val_gt_detection.json",
         "test": "instancesonly_test_image_info.json",
     }
-    if split_name not in json_by_split:
+    condition_by_split = {
+        "train": "instancesonly_*_train_gt_detection.json",
+        "val": "instancesonly_*_val_gt_detection.json",
+        "test": "instancesonly_*_test_image_info.json",
+    }
+    if split_name not in top_level_by_split:
         raise ValueError(
             "Unsupported ACDC split for local detection import: "
             f"'{split}'. Expected one of train/val/test."
@@ -249,24 +255,49 @@ def _resolve_acdc_detection_json_path(dataset_dir: str, split: str) -> Path:
         root / "gt_detection",
         root / "gt_detection_trainval" / "gt_detection",
         root.parent / "gt_detection",
+        root / "labels",
+        root / "acdc" / "labels",
     ]
     if root.name == "gt_detection_trainval":
         candidates.append(root / "gt_detection")
     if root.name == "gt_detection":
         candidates.append(root)
+    if root.name == "acdc":
+        candidates.append(root / "labels")
 
-    target_name = json_by_split[split_name]
+    exact_name = top_level_by_split[split_name]
+    condition_name = condition_by_split[split_name]
+    exact_matches: List[Path] = []
+    condition_matches: List[Path] = []
+
+    seen: set[str] = set()
     for candidate in candidates:
         if not candidate.is_dir():
             continue
-        target = candidate / target_name
+        target = candidate / exact_name
         if target.exists():
-            return target
+            key = str(target.resolve())
+            if key not in seen:
+                seen.add(key)
+                exact_matches.append(target)
+
+        for pattern in (condition_name, f"*/{condition_name}"):
+            for match in sorted(candidate.glob(pattern)):
+                key = str(match.resolve())
+                if key in seen:
+                    continue
+                seen.add(key)
+                condition_matches.append(match)
+
+    if exact_matches:
+        return exact_matches
+    if condition_matches:
+        return condition_matches
 
     searched = ", ".join(str(p) for p in candidates)
     raise FileNotFoundError(
         f"ACDC detection annotations not found for split '{split_name}'. "
-        f"Expected file '{target_name}' under one of: {searched}"
+        f"Expected file '{exact_name}' or pattern '{condition_name}' under one of: {searched}"
     )
 
 
@@ -282,6 +313,8 @@ def _resolve_acdc_rgb_root(dataset_dir: str) -> Path:
     for base in parents:
         candidates.extend(
             [
+                base / "images",
+                base / "acdc" / "images",
                 base / "rgb_anon",
                 base / "rgb_anon_trainvaltest" / "rgb_anon",
             ]
@@ -300,11 +333,55 @@ def _resolve_acdc_rgb_root(dataset_dir: str) -> Path:
 
 def _is_acdc_detection_layout(dataset_dir: str, split: str) -> bool:
     try:
-        _resolve_acdc_detection_json_path(dataset_dir, split)
+        _resolve_acdc_detection_json_paths(dataset_dir, split)
         _resolve_acdc_rgb_root(dataset_dir)
         return True
     except Exception:
         return False
+
+
+def _merge_coco_annotation_files(annotation_paths: List[Path]) -> Dict[str, object]:
+    merged: Dict[str, object] = {
+        "images": [],
+        "annotations": [],
+        "categories": [],
+    }
+    next_image_id = 0
+    next_annotation_id = 0
+
+    for idx, ann_path in enumerate(annotation_paths):
+        with open(ann_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+
+        if idx == 0:
+            merged["categories"] = list(payload.get("categories", []))
+
+        image_id_map: Dict[object, int] = {}
+        for image in payload.get("images", []):
+            if not isinstance(image, dict):
+                continue
+            original_image_id = image.get("id")
+            if original_image_id is None:
+                continue
+            image_copy = dict(image)
+            image_copy["id"] = next_image_id
+            image_id_map[original_image_id] = next_image_id
+            next_image_id += 1
+            merged["images"].append(image_copy)
+
+        for ann in payload.get("annotations", []):
+            if not isinstance(ann, dict):
+                continue
+            original_image_id = ann.get("image_id")
+            if original_image_id not in image_id_map:
+                continue
+            ann_copy = dict(ann)
+            ann_copy["id"] = next_annotation_id
+            ann_copy["image_id"] = image_id_map[original_image_id]
+            next_annotation_id += 1
+            merged["annotations"].append(ann_copy)
+
+    return merged
 
 
 def import_acdc_detection_dataset(
@@ -316,7 +393,7 @@ def import_acdc_detection_dataset(
 ):
     """Import local ACDC detection annotations + rgb_anon images in COCO format."""
     fo, _ = _require_fiftyone()
-    labels_path = _resolve_acdc_detection_json_path(dataset_dir, split)
+    labels_paths = _resolve_acdc_detection_json_paths(dataset_dir, split)
     data_path = _resolve_acdc_rgb_root(dataset_dir)
 
     dataset_type = fo.types.COCODetectionDataset
@@ -331,6 +408,18 @@ def import_acdc_detection_dataset(
             except Exception:
                 if hasattr(fo, "delete_dataset"):
                     fo.delete_dataset(dataset_name)
+
+    if len(labels_paths) == 1:
+        labels_path = labels_paths[0]
+    else:
+        merged = _merge_coco_annotation_files(labels_paths)
+        split_name = _normalize_acdc_split_name(split)
+        tmp_labels_path = Path(tempfile.gettempdir()) / (
+            f"acdc_{dataset_name}_{split_name}_{int(time.time() * 1000)}.json"
+        )
+        with open(tmp_labels_path, "w", encoding="utf-8") as f:
+            json.dump(merged, f)
+        labels_path = tmp_labels_path
 
     return fo.Dataset.from_dir(
         dataset_type=dataset_type,
@@ -355,7 +444,163 @@ def _normalize_bdd_split_name(split: str) -> str:
 def _is_bdd100k_dataset_ninja_layout(dataset_dir: str, split: str) -> bool:
     split_name = _normalize_bdd_split_name(split)
     root = Path(dataset_dir).resolve()
-    return (root / split_name / "img").is_dir() and (root / split_name / "ann").is_dir()
+    image_dir = root / split_name / "img"
+    ann_dir = root / split_name / "ann"
+    if not image_dir.is_dir() or not ann_dir.is_dir():
+        return False
+
+    ann_files = sorted(ann_dir.glob("*.json"))
+    if not ann_files:
+        return False
+    # Official BDD packs one large split-level JSON file; dataset-ninja packs
+    # one JSON annotation per image.
+    if len(ann_files) == 1 and ann_files[0].name.startswith("bdd100k_labels_images_"):
+        return False
+    return True
+
+
+def _get_bdd100k_official_paths(dataset_dir: str, split: str) -> Tuple[Path, Path]:
+    split_name = _normalize_bdd_split_name(split)
+    root = Path(dataset_dir).resolve()
+
+    if split_name not in {"train", "val"}:
+        raise ValueError(
+            f"Unsupported BDD split '{split}'. Official local JSON importer supports train/val."
+        )
+
+    image_dir = root / split_name / "img"
+    ann_file = root / split_name / "ann" / f"bdd100k_labels_images_{split_name}.json"
+    if not image_dir.is_dir() or not ann_file.exists():
+        raise FileNotFoundError(
+            f"BDD official layout not found for split '{split_name}' under '{root}'. "
+            f"Expected '{image_dir}' and '{ann_file}'."
+        )
+    return image_dir, ann_file
+
+
+def _is_bdd100k_official_layout(dataset_dir: str, split: str) -> bool:
+    try:
+        _get_bdd100k_official_paths(dataset_dir, split)
+        return True
+    except Exception:
+        return False
+
+
+def _build_bdd_official_detection(fo, obj: dict, width: float, height: float):
+    if not isinstance(obj, dict):
+        return None
+    label = str(obj.get("category", "")).strip()
+    if not label:
+        return None
+    box = obj.get("box2d")
+    if not isinstance(box, dict):
+        return None
+
+    try:
+        x1 = float(box.get("x1"))
+        y1 = float(box.get("y1"))
+        x2 = float(box.get("x2"))
+        y2 = float(box.get("y2"))
+    except (TypeError, ValueError):
+        return None
+
+    x_min = max(0.0, min(x1, x2))
+    y_min = max(0.0, min(y1, y2))
+    x_max = max(0.0, max(x1, x2))
+    y_max = max(0.0, max(y1, y2))
+    box_w = max(0.0, x_max - x_min)
+    box_h = max(0.0, y_max - y_min)
+    if box_w <= 0.0 or box_h <= 0.0:
+        return None
+
+    return fo.Detection(
+        label=label,
+        bounding_box=[x_min / width, y_min / height, box_w / width, box_h / height],
+    )
+
+
+def import_bdd100k_dataset_official_json(
+    *,
+    dataset_name: str,
+    dataset_dir: str,
+    split: str,
+    persist: bool = True,
+    max_samples: Optional[int] = None,
+):
+    """Import official BDD local JSON format: `<split>/img` + `<split>/ann/bdd100k_labels_images_<split>.json`."""
+    fo, _ = _require_fiftyone()
+    image_dir, ann_file = _get_bdd100k_official_paths(dataset_dir, split)
+
+    if dataset_name in fo.list_datasets():
+        existing = fo.load_dataset(dataset_name)
+        try:
+            _select_detection_field(existing, preferred_fields=["ground_truth", "detections"])
+            if len(existing) > 0:
+                return existing
+        except Exception:
+            pass
+        try:
+            existing.delete()
+        except Exception:
+            if hasattr(fo, "delete_dataset"):
+                fo.delete_dataset(dataset_name)
+
+    with open(ann_file, "r", encoding="utf-8") as f:
+        records = json.load(f)
+    if not isinstance(records, list):
+        raise RuntimeError(f"Expected a JSON list in '{ann_file}'")
+    if max_samples is not None:
+        records = records[: max(0, int(max_samples))]
+
+    # BDD100K detection images are 1280x720.
+    width = 1280.0
+    height = 720.0
+
+    dataset = fo.Dataset(name=dataset_name, persistent=persist)
+    samples = []
+    for item in records:
+        if not isinstance(item, dict):
+            continue
+        image_name = str(item.get("name", "")).strip()
+        if not image_name:
+            continue
+        image_path = image_dir / image_name
+        if not image_path.exists():
+            continue
+
+        detections = []
+        labels = item.get("labels")
+        if isinstance(labels, list):
+            for obj in labels:
+                det = _build_bdd_official_detection(fo, obj, width, height)
+                if det is not None:
+                    detections.append(det)
+
+        sample = fo.Sample(filepath=str(image_path))
+        sample["ground_truth"] = fo.Detections(detections=detections)
+
+        attributes = item.get("attributes")
+        if isinstance(attributes, dict):
+            time_of_day = attributes.get("timeofday")
+            if time_of_day is not None:
+                value = str(time_of_day).strip().lower()
+                if value:
+                    sample["timeofday"] = value
+
+        samples.append(sample)
+        if len(samples) >= 512:
+            dataset.add_samples(samples)
+            samples = []
+
+    if samples:
+        dataset.add_samples(samples)
+
+    if len(dataset) == 0:
+        raise RuntimeError(
+            f"No valid samples were imported from '{ann_file}'. "
+            "Check that image names in the annotation JSON exist under <split>/img."
+        )
+    return dataset
 
 
 def _extract_bdd_tag_value(tags: object, tag_name: str) -> Optional[str]:
@@ -664,6 +909,70 @@ def prepare_zoo_split_export(
     if policy not in {"strict", "permissive", "off"}:
         raise ValueError("fallback_policy must be one of: strict, permissive, off")
 
+    # In permissive mode, prefer known local layouts immediately to avoid
+    # expensive/fragile Zoo bootstrap attempts in restricted environments.
+    if policy == "permissive" and local_dataset_dir:
+        if zoo_name == "bdd100k":
+            if _is_bdd100k_dataset_ninja_layout(local_dataset_dir, split):
+                dataset = import_bdd100k_dataset_ninja(
+                    dataset_name=dataset_name,
+                    dataset_dir=local_dataset_dir,
+                    split=split,
+                    persist=True,
+                    max_samples=max_samples,
+                )
+                label_field = _select_detection_field(dataset)
+                dataset = normalize_and_filter_classes(dataset, label_field=label_field, keep_classes=COMMON_CLASSES)
+                if time_of_day:
+                    dataset = filter_samples_by_time_of_day(dataset, time_of_day)
+                return export_coco_with_manifest(
+                    dataset=dataset,
+                    export_dir=export_dir,
+                    split_name=split,
+                    source=source,
+                    manifest_path=manifest_path,
+                    preferred_label_fields=[label_field],
+                )
+            if _is_bdd100k_official_layout(local_dataset_dir, split):
+                dataset = import_bdd100k_dataset_official_json(
+                    dataset_name=dataset_name,
+                    dataset_dir=local_dataset_dir,
+                    split=split,
+                    persist=True,
+                    max_samples=max_samples,
+                )
+                label_field = _select_detection_field(dataset)
+                dataset = normalize_and_filter_classes(dataset, label_field=label_field, keep_classes=COMMON_CLASSES)
+                if time_of_day:
+                    dataset = filter_samples_by_time_of_day(dataset, time_of_day)
+                return export_coco_with_manifest(
+                    dataset=dataset,
+                    export_dir=export_dir,
+                    split_name=split,
+                    source=source,
+                    manifest_path=manifest_path,
+                    preferred_label_fields=[label_field],
+                )
+        if zoo_name == "acdc" and _is_acdc_detection_layout(local_dataset_dir, split):
+            dataset = import_acdc_detection_dataset(
+                dataset_name=dataset_name,
+                dataset_dir=local_dataset_dir,
+                split=split,
+                persist=True,
+            )
+            label_field = _select_detection_field(dataset)
+            dataset = normalize_and_filter_classes(dataset, label_field=label_field, keep_classes=COMMON_CLASSES)
+            if time_of_day:
+                dataset = filter_samples_by_time_of_day(dataset, time_of_day)
+            return export_coco_with_manifest(
+                dataset=dataset,
+                export_dir=export_dir,
+                split_name=split,
+                source=source,
+                manifest_path=manifest_path,
+                preferred_label_fields=[label_field],
+            )
+
     zoo_source_dir = local_dataset_dir if zoo_name == "bdd100k" and local_dataset_dir else None
 
     try:
@@ -722,6 +1031,35 @@ def prepare_zoo_split_export(
                 preferred_label_fields=[label_field],
             )
 
+        if is_bdd and has_local and _is_bdd100k_official_layout(local_dataset_dir, split):
+            if policy == "permissive" or known_error:
+                dataset = import_bdd100k_dataset_official_json(
+                    dataset_name=dataset_name,
+                    dataset_dir=local_dataset_dir,
+                    split=split,
+                    persist=True,
+                    max_samples=max_samples,
+                )
+                label_field = _select_detection_field(dataset)
+                dataset = normalize_and_filter_classes(dataset, label_field=label_field, keep_classes=COMMON_CLASSES)
+                if time_of_day:
+                    dataset = filter_samples_by_time_of_day(dataset, time_of_day)
+                return export_coco_with_manifest(
+                    dataset=dataset,
+                    export_dir=export_dir,
+                    split_name=split,
+                    source=source,
+                    manifest_path=manifest_path,
+                    preferred_label_fields=[label_field],
+                )
+            raise RuntimeError(
+                f"Failed to load zoo dataset '{zoo_name}' split '{split}'. "
+                "Fallback blocked by strict policy for unknown error. "
+                f"policy={policy}, known_error={known_error}, retriable_error={retriable_error}, "
+                f"local_dataset_dir_present={has_local}. "
+                f"Root cause: {type(exc).__name__}: {exc}."
+            ) from exc
+
         if is_acdc and has_local and _is_acdc_detection_layout(local_dataset_dir, split):
             if policy == "permissive" or known_error:
                 dataset = import_acdc_detection_dataset(
@@ -754,8 +1092,10 @@ def prepare_zoo_split_export(
         if is_bdd:
             raise RuntimeError(
                 f"Failed to load zoo dataset '{zoo_name}' split '{split}' from source_dir '{local_dataset_dir}'. "
-                "For BDD100K, local files must be in the original BDD100K layout expected by FiftyOne "
-                "(for example labels and images under the official structure), not a COCO `data/ + labels.json` export root. "
+                "For BDD100K, local files must be either:\n"
+                "1) dataset-ninja layout: <split>/img + <split>/ann/*.jpg.json\n"
+                "2) official local JSON layout: <split>/img + <split>/ann/bdd100k_labels_images_<split>.json\n"
+                "A COCO export root (`data/ + labels.json`) is not valid here. "
                 f"policy={policy}, known_error={known_error}, retriable_error={retriable_error}. "
                 f"Root cause: {type(exc).__name__}: {exc}."
             ) from exc
