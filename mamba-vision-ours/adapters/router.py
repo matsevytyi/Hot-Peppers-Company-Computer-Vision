@@ -4,30 +4,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# simple MLP for fast domain routing
-class RouterMLP(nn.Module):
-    def __init__(self, hidden: int = 64, num_domains: int = 3):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(4, hidden), 
-            nn.BatchNorm1d(hidden), # for stable training with stats
-            nn.ReLU(), 
-            
-            nn.Linear(hidden, hidden),
-            nn.BatchNorm1d(hidden),
-            nn.ReLU(),
-            
-            nn.Linear(hidden, num_domains)
-            )
-
-    def forward(self, images: torch.Tensor) -> torch.Tensor:
-        
-        stats = _image_stats(images)
-        
-        logits = self.net(stats)
-        probs = F.softmax(logits, dim=1)
-        return probs
-    
 # computes quick image stats
 def _image_stats(images: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
     # images: (B,3,H,W), on-device
@@ -66,3 +42,35 @@ def _image_stats(images: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
                         contrast, 
                         hf_energy, 
                         saturation], dim=1)
+
+# simple MLP for fast domain routing
+class RouterMLP(nn.Module):
+    def __init__(self, hidden: int = 64, num_domains: int = 3):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(4, hidden), 
+            nn.BatchNorm1d(hidden), # for stable training with stats
+            nn.ReLU(), 
+            
+            nn.Linear(hidden, hidden),
+            nn.BatchNorm1d(hidden),
+            nn.ReLU(),
+            
+            nn.Linear(hidden, num_domains)
+            )
+
+    def forward(self, images: torch.Tensor) -> torch.Tensor:
+        
+        stats = _image_stats(images)
+        
+        logits = self.net(stats)
+        probs = F.softmax(logits, dim=1)
+        return probs
+
+    def train_cross_entropy_loss(self, stats: torch.Tensor) -> torch.Tensor:
+        
+        logits = self.net(stats)
+        return logits
+    
+    def _image_stats(self, images: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+        return _image_stats(images, eps)

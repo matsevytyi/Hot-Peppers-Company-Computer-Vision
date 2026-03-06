@@ -67,10 +67,11 @@ def create_model_from_config(model_cfg: ModelSection, device: str):
         adapter_paths = dict(model_cfg.moe_adapters)
 
         model = moe_cls(
+            device=device,
             base_model=base_model,
             adapter_paths=adapter_paths,
-            target_rule=getattr(model_cfg, "lora_target_rule", "all_linear_except_head")
-            # router_weights_path=model_cfg.moe_router_weights
+            target_rule=getattr(model_cfg, "lora_target_rule", "all_linear_except_head"),
+            router_weights_path=getattr(model_cfg, "moe_router_weights", "")
         )
         return model
 

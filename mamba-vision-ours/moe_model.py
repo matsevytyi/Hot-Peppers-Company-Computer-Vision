@@ -28,17 +28,18 @@ except ImportError:
 class MoEMambaVision(nn.Module):
     """Wrapper that radds router to inject LoRA adapters at a runtime."""
 
-    def __init__(self, base_model: MambaVisionOurs, adapter_paths: Dict[str, str], target_rule: str = "all_linear_except_head"):
+    def __init__(self, device: str, base_model: MambaVisionOurs, adapter_paths: Dict[str, str], target_rule: str = "all_linear_except_head", router_weights_path: str = ""):
         super().__init__()
         self.model = base_model
         self.router = RouterMLP()
         self.domains = list(adapter_paths.keys())
+        self.device = device
 
         # Load all raw checkpoints into memory first
         raw_states = {}
         for domain, path in adapter_paths.items():
             print(f"Loading checkpoint for domain '{domain}' from {path}")
-            ckpt = torch.load(path, map_location="cpu", weights_only=False)
+            ckpt = torch.load(path, map_location=self.device, weights_only=False)
             
             # If it's a standard PyTorch/Lightning save dict, extract the model weights
             if "model_state_dict" in ckpt:
@@ -85,6 +86,11 @@ class MoEMambaVision(nn.Module):
             
             # Load this specific domain's weights into the backbone
             missing, unexpected = self.model.backbone.load_state_dict(domain_state, strict=False)
+
+        # Load router weights if provided
+        if router_weights_path and Path(router_weights_path).exists():
+            router_state = torch.load(router_weights_path, map_location=self.device)
+            self.router.load_state_dict(router_state, strict=True)
 
     def _set_active_domain(self, domain_idx: int):
         """Helper to tell all LoRA layers which domain to use for the upcoming forward pass"""
@@ -233,7 +239,7 @@ def build_moe_from_config(cfg) -> nn.Module:
     # 1. Build Base
     base_model = MambaVisionOurs(
         model_type=cfg.model.backbone,
-        device=device,
+        device=str(device),
         num_output_classes=cfg.model.num_classes,
         pretrained=False # Set to false for testing shapes
     ).to(device)
@@ -247,6 +253,7 @@ def build_moe_from_config(cfg) -> nn.Module:
         # In a real environment, you would use load_moe_wrapper_class from model_loader.py
         # Here we just instantiate the class directly since it's in the same file
         moe_model = MoEMambaVision(
+            device=str(device),
             base_model=base_model,
             adapter_paths=cfg.model.moe_adapters,
             target_rule="all_linear_except_head"
