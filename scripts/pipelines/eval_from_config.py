@@ -14,6 +14,7 @@ sys.path.append(str(REPO_ROOT))
 
 from pipelines.coco_dataset import build_dataloader  # noqa: E402
 from pipelines.contracts import DatasetManifest, EvalConfig, ModelSection  # noqa: E402
+from pipelines.dependencies import assert_mamba_runtime_support  # noqa: E402
 from pipelines.evaluation import evaluate_model_detailed  # noqa: E402
 from pipelines.lora import inject_lora_modules, load_lora_adapters  # noqa: E402
 from pipelines.model_loader import create_model_from_config  # noqa: E402
@@ -30,6 +31,7 @@ def parse_args() -> argparse.Namespace:
 def _load_model(model_cfg_dict: dict, device: str):
     section = ModelSection.from_dict(model_cfg_dict["model"])
     section.model_file = str((REPO_ROOT / section.model_file).resolve())
+    section.moe_model_file = str((REPO_ROOT / section.moe_model_file).resolve())
     model = create_model_from_config(section, device=device)
 
     base_checkpoint = model_cfg_dict.get("base_checkpoint")
@@ -65,6 +67,7 @@ def _safe_name(value: str) -> str:
 
 def main() -> None:
     args = parse_args()
+    assert_mamba_runtime_support()
     config_path = Path(args.config)
     if not config_path.is_absolute():
         config_path = (REPO_ROOT / config_path).resolve()

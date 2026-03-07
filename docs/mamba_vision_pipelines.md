@@ -8,6 +8,12 @@ This project now includes notebook-first pipelines for:
 4. LoRA adaptation on ACDC adverse-weather detection annotations
 5. Shared evaluation across all trained variants
 
+## Runtime limitation
+
+- Mamba train/eval requires `mamba_ssm` and CUDA-enabled runtime.
+- On macOS without CUDA, use this repo only for data export/manifest preparation.
+- For full training/evaluation use Linux + NVIDIA GPU + CUDA.
+
 ## Notebook entrypoints
 
 - `/Users/ivantyshchenko/Projects/Python/Hot-Peppers-Company-Computer-Vision/notebooks/11_train_coco_base.ipynb`

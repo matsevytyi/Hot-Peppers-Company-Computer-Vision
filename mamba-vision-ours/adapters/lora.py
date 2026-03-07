@@ -8,8 +8,7 @@ working.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, List, Tuple
 
 import torch
 import torch.nn as nn
@@ -47,25 +46,39 @@ class LoRALinear(nn.Module):
             self.lora_A[domain] = A
             self.lora_B[domain] = B
 
+    def _resolve_domain_idx(self, domain_idx: int | None, domain_probs: torch.Tensor | None) -> int | None:
+        if domain_idx is not None:
+            return int(domain_idx)
+        active = getattr(self, "active_domain_idx", None)
+        if active is not None:
+            return int(active)
+        if domain_probs is None and len(self.domains) == 1:
+            return 0
+        return None
+
     def forward(self, x: torch.Tensor, domain_idx: int = None, domain_probs: torch.Tensor = None) -> torch.Tensor:
         base_out = self.base(x)
-        
-        # If no routing is provided, just return base (shouldn't happen in MoE)
-        if domain_idx is None and domain_probs is None:
-            return base_out
-            
-        dropped_x = self.dropout(x)
-        
-        # HARD ROUTING: If a specific domain index is given
-        if domain_idx is not None:
-            domain = self.domains[domain_idx]
+
+        resolved_domain_idx = self._resolve_domain_idx(domain_idx, domain_probs)
+        if resolved_domain_idx is not None:
+            if resolved_domain_idx < 0 or resolved_domain_idx >= len(self.domains):
+                raise IndexError(
+                    f"Domain index {resolved_domain_idx} is out of range for {len(self.domains)} domains"
+                )
+            domain = self.domains[resolved_domain_idx]
+            dropped_x = self.dropout(x)
             lora = F.linear(dropped_x, self.lora_A[domain])
             lora = F.linear(lora, self.lora_B[domain])
             return base_out + lora * self.scaling
-            
-        # SOFT ROUTING: If probabilities are given (optional, for soft-MoE)
+
         if domain_probs is not None:
-            lora_out = 0
+            if domain_probs.dim() != 1 or domain_probs.shape[0] != len(self.domains):
+                raise ValueError(
+                    "Soft routing expects domain_probs to be a 1D tensor "
+                    f"with shape [{len(self.domains)}], got {tuple(domain_probs.shape)}"
+                )
+            dropped_x = self.dropout(x)
+            lora_out = torch.zeros_like(base_out)
             for i, domain in enumerate(self.domains):
                 prob = domain_probs[i]
                 if prob > 0:
@@ -73,6 +86,13 @@ class LoRALinear(nn.Module):
                     l = F.linear(l, self.lora_B[domain])
                     lora_out += l * prob
             return base_out + lora_out * self.scaling
+
+        if not getattr(self, "_warned_missing_domain", False):
+            print(
+                "LoRALinear: no domain was selected in multi-domain mode; returning base output only."
+            )
+            self._warned_missing_domain = True
+        return base_out
 
     @property
     def weight(self) -> torch.Tensor:
@@ -136,25 +156,26 @@ def configure_lora_training(
     freeze_neck: bool = True,
     freeze_head: bool = True,
 ) -> None:
-    """Keep only LoRA params trainable and optionally freeze neck/head."""
-    lo_ra_found = False
+    """Keep LoRA params trainable and optionally unfreeze neck/head."""
+    for param in model.parameters():
+        param.requires_grad = False
+
+    lora_param_count = 0
     for name, param in model.named_parameters():
         if ("lora_A" in name) or ("lora_B" in name):
-            lo_ra_found = True
             param.requires_grad = True
-        else:
-            if lo_ra_found:
-                param.requires_grad = False
+            lora_param_count += 1
 
-    if not lo_ra_found:
-        # nothing to train; leave flags unchanged for callers that want to handle it
-        print("configure_lora_training: no LoRA parameters found; grads left untouched")
-        return
+    if lora_param_count == 0:
+        raise RuntimeError(
+            "configure_lora_training: no LoRA parameters found. "
+            "Check LoRA injection and target_rule before training."
+        )
 
-    if freeze_neck and hasattr(model, "neck"):
-        freeze_module(model.neck, True)
-    if freeze_head and hasattr(model, "head"):
-        freeze_module(model.head, True)
+    if hasattr(model, "neck"):
+        freeze_module(model.neck, freeze_neck)
+    if hasattr(model, "head"):
+        freeze_module(model.head, freeze_head)
 
 
 def lora_state_dict(model: nn.Module) -> Dict[str, torch.Tensor]:

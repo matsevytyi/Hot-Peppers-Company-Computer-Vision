@@ -16,6 +16,12 @@ python scripts/pipelines/preflight_check.py
 
 If `preflight_check.py` reports `MISSING`, install missing packages and run it again.
 
+### Platform note (Mamba runtime)
+
+- Mamba train/eval in this repo depends on `mamba_ssm` selective scan kernels and CUDA runtime.
+- On macOS (MPS-only, no CUDA), data export/manifest steps work, but Mamba model train/eval is not supported.
+- Recommended runtime for full pipeline: Linux + NVIDIA GPU + CUDA.
+
 ## 2) How to download datasets correctly
 
 Datasets are loaded/exported directly from the training notebooks through FiftyOne (`prepare_zoo_split_export`).

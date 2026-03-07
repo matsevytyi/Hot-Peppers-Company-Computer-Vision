@@ -14,7 +14,7 @@ try:
     from .yolov11detection import YOLOv11Head
     from .yolov11detection import YOLONeck
     try:
-        from .lora import load_lora_adapters
+        from .adapters.lora import load_lora_adapters
     except Exception:
         # import may fail during older import paths; keep import optional
         load_lora_adapters = None  # type: ignore

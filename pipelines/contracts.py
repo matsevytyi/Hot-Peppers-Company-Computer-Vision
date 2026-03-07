@@ -170,8 +170,9 @@ class ModelSection:
     base_checkpoint: str = ""
     moe_router_weights: str = ""
     moe_adapters: Optional[Dict[str, str]] = field(default_factory=dict)
-    model_file: str = "mamba-vision-ours/model.py"
+    model_file: str = "mamba-vision-ours/base_model.py"
     moe_model_file: str = "mamba-vision-ours/moe_model.py"
+    lora_target_rule: str = "all_linear_except_head"
 
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "ModelSection":
@@ -181,10 +182,12 @@ class ModelSection:
             pretrained=bool(payload.get("pretrained", True)),
             checkpoint_path=str(payload.get("checkpoint_path", "")),
             base_checkpoint=str(payload.get("base_checkpoint", "")),
-            model_file=str(payload.get("model_file", "mamba-vision-ours/model.py")),
+            model_file=str(payload.get("model_file", "mamba-vision-ours/base_model.py")),
+            moe_model_file=str(payload.get("moe_model_file", "mamba-vision-ours/moe_model.py")),
             moe_router_weights=str(payload.get("moe_router_weights", "")),
-            moe_adapters=payload.get("moe_adapters", {})
-            )
+            moe_adapters=payload.get("moe_adapters", {}),
+            lora_target_rule=str(payload.get("lora_target_rule", "all_linear_except_head")),
+        )
 
 
 @dataclass

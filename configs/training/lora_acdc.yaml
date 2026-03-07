@@ -17,12 +17,12 @@ data:
   lora_output_path: checkpoints/lora/acdc_adverse.safetensors
 
 model:
-  model_file: mamba-vision-ours/model.py
+  model_file: mamba-vision-ours/base_model.py
   backbone: mamba_vision_T2
   num_classes: 8
   pretrained: false
   checkpoint_path: ""
-  base_checkpoint: checkpoints/base/coco_base_epoch009.ckpt
+  base_checkpoint: checkpoints/base/coco_base.ckpt
 
 train:
   epochs: 12

@@ -13,9 +13,9 @@ data:
   max_samples_val: null
 
 model:
-  model_file: mamba-vision-ours/model.py
+  model_file: mamba-vision-ours/base_model.py
   backbone: mamba_vision_T2
-  num_classes: 32
+  num_classes: 8
   pretrained: true
   checkpoint_path: mambavision_tiny2_1k.pth.tar
   base_checkpoint: ""

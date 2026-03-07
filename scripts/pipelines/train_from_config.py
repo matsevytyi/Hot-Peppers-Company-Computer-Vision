@@ -15,7 +15,7 @@ sys.path.append(str(REPO_ROOT))
 
 from pipelines.coco_dataset import build_dataloader  # noqa: E402
 from pipelines.contracts import DatasetManifest, TrainConfig  # noqa: E402
-from pipelines.dependencies import assert_required_packages  # noqa: E402
+from pipelines.dependencies import assert_mamba_runtime_support, assert_required_packages  # noqa: E402
 from pipelines.lora import (  # noqa: E402
     collect_trainable_parameter_summary,
     configure_lora_training,
@@ -45,12 +45,14 @@ def main() -> None:
     args = parse_args()
     set_seed(args.seed)
     assert_required_packages(["torch", "torchvision", "yaml", "safetensors"])
+    assert_mamba_runtime_support()
 
     config_path = Path(args.config)
     if not config_path.is_absolute():
         config_path = (REPO_ROOT / config_path).resolve()
     cfg = TrainConfig.from_yaml(config_path)
     cfg.model.model_file = str((REPO_ROOT / cfg.model.model_file).resolve())
+    cfg.model.moe_model_file = str((REPO_ROOT / cfg.model.moe_model_file).resolve())
     ckpt_output = Path(cfg.ckpt.output_path)
     if not ckpt_output.is_absolute():
         ckpt_output = (REPO_ROOT / ckpt_output).resolve()
@@ -69,19 +71,25 @@ def main() -> None:
         print(f"Loaded base checkpoint: {base_ckpt}")
 
     if cfg.lora is not None:
-        replaced = inject_lora_modules(
-            model.backbone,
-            rank=cfg.lora.rank,
-            alpha=cfg.lora.alpha,
-            dropout=cfg.lora.dropout,
-            target_rule=cfg.lora.target_rule,
-        )
-        configure_lora_training(
-            model,
-            freeze_neck=cfg.freeze.neck,
-            freeze_head=cfg.freeze.head,
-        )
-        print(f"Injected LoRA into {len(replaced)} linear layers")
+        if hasattr(model, "backbone"):
+            replaced = inject_lora_modules(
+                model.backbone,
+                rank=cfg.lora.rank,
+                alpha=cfg.lora.alpha,
+                dropout=cfg.lora.dropout,
+                target_rule=cfg.lora.target_rule,
+            )
+            configure_lora_training(
+                model,
+                freeze_neck=cfg.freeze.neck,
+                freeze_head=cfg.freeze.head,
+            )
+            print(f"Injected LoRA into {len(replaced)} linear layers")
+        else:
+            print(
+                "Skipping standalone LoRA injection because the loaded model has no `backbone` "
+                "(likely MoE wrapper with adapters already configured)."
+            )
     else:
         if cfg.freeze.backbone_base:
             for param in model.backbone.parameters():

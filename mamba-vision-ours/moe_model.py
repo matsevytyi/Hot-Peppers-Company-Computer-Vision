@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 from typing import List, Dict, Tuple
 
-import numpy as np
 import torch
 import torch.nn as nn
 
@@ -25,6 +23,68 @@ except ImportError:
     from base_model import MambaVisionOurs, check_shapes
 
 
+MAX_ALLOWED_MISSING_RATIO = 0.05
+
+
+def _extract_state_dict(payload: object) -> Dict[str, torch.Tensor]:
+    if isinstance(payload, dict):
+        for key in ("model_state_dict", "state_dict"):
+            candidate = payload.get(key)
+            if isinstance(candidate, dict):
+                return candidate
+        return payload
+    raise TypeError(f"Unsupported checkpoint payload type: {type(payload).__name__}")
+
+
+def _load_lora_state_dict(path: Path, device: str) -> Dict[str, torch.Tensor]:
+    if not path.exists():
+        raise FileNotFoundError(f"Adapter checkpoint not found: {path}")
+    if path.suffix == ".safetensors":
+        state = load_file(str(path))
+    else:
+        payload = torch.load(path, map_location=device, weights_only=False)
+        state = _extract_state_dict(payload)
+
+    lora_state = {k: v for k, v in state.items() if ("lora_A" in k) or ("lora_B" in k)}
+    if not lora_state:
+        raise ValueError(f"No LoRA weights found in checkpoint: {path}")
+    return lora_state
+
+
+def _normalize_lora_key_for_domain(key: str, domain: str) -> str:
+    for prefix in (
+        "module.model.backbone.",
+        "model.backbone.",
+        "module.backbone.",
+        "backbone.",
+    ):
+        if key.startswith(prefix):
+            key = key[len(prefix) :]
+            break
+    if ".lora_A.default" in key:
+        return key.replace(".lora_A.default", f".lora_A.{domain}")
+    if ".lora_B.default" in key:
+        return key.replace(".lora_B.default", f".lora_B.{domain}")
+    if ".lora_A" in key:
+        return key.replace(".lora_A", f".lora_A.{domain}")
+    if ".lora_B" in key:
+        return key.replace(".lora_B", f".lora_B.{domain}")
+    return key
+
+
+def _infer_single_rank(lora_state: Dict[str, torch.Tensor]) -> int:
+    ranks = {
+        int(v.shape[0])
+        for k, v in lora_state.items()
+        if "lora_A" in k and hasattr(v, "shape") and len(v.shape) >= 2
+    }
+    if not ranks:
+        raise ValueError("Could not infer LoRA rank: no lora_A tensors found")
+    if len(ranks) != 1:
+        raise ValueError(f"Inconsistent LoRA ranks in one adapter state: {sorted(ranks)}")
+    return next(iter(ranks))
+
+
 class MoEMambaVision(nn.Module):
     """Wrapper that radds router to inject LoRA adapters at a runtime."""
 
@@ -36,36 +96,22 @@ class MoEMambaVision(nn.Module):
         self.device = device
 
         # Load all raw checkpoints into memory first
-        raw_states = {}
+        raw_states: Dict[str, Dict[str, torch.Tensor]] = {}
+        rank_by_domain: Dict[str, int] = {}
         for domain, path in adapter_paths.items():
             print(f"Loading checkpoint for domain '{domain}' from {path}")
-            ckpt = torch.load(path, map_location=self.device, weights_only=False)
-            
-            # If it's a standard PyTorch/Lightning save dict, extract the model weights
-            if "model_state_dict" in ckpt:
-                state = ckpt["model_state_dict"]
-            elif "state_dict" in ckpt:
-                state = ckpt["state_dict"]
-            else:
-                state = ckpt # Assume it's a raw weight dict
-                
-            # Filter to keep ONLY LoRA keys
-            lora_state = {k: v for k, v in state.items() if "lora_" in k}
-            if not lora_state:
-                raise ValueError(f"No LoRA weights found in checkpoint: {path}")
-                
+            resolved_path = Path(path).expanduser().resolve()
+            lora_state = _load_lora_state_dict(resolved_path, device=self.device)
             raw_states[domain] = lora_state
+            rank_by_domain[domain] = _infer_single_rank(lora_state)
+
+        unique_ranks = sorted(set(rank_by_domain.values()))
+        if len(unique_ranks) != 1:
+            raise ValueError(f"LoRA rank mismatch across domains: {rank_by_domain}")
+        rank = unique_ranks[0]
+        print(f"Detected LoRA rank: {rank}")
 
         # Inject the multi-adapter LoRA layers into the base model
-        # Infer rank from first adapter
-        first_state = next(iter(raw_states.values()))
-        rank = 8
-        for k, v in first_state.items():
-            if "lora_A" in k:
-                rank = v.shape[0]
-                print("""Detected LoRA rank: {}""".format(rank))
-                break
-                
         inject_lora_modules(
             self.model.backbone, 
             domains=self.domains, 
@@ -75,21 +121,37 @@ class MoEMambaVision(nn.Module):
             target_rule=target_rule
         )
 
-        # 3. Format and load the state dicts into the new ParameterDict structure
+        # Format and load the state dicts into the new ParameterDict structure.
+        # We validate mapped keys before loading to prevent silent partial loads.
+        backbone_keys = set(self.model.backbone.state_dict().keys())
         for domain, state in raw_states.items():
-            domain_state = {}
+            domain_state: Dict[str, torch.Tensor] = {}
             for k, v in state.items():
-                if "lora_A" in k:
-                    domain_state[k.replace("lora_A", f"lora_A.{domain}")] = v
-                elif "lora_B" in k:
-                    domain_state[k.replace("lora_B", f"lora_B.{domain}")] = v
-            
-            # Load this specific domain's weights into the backbone
-            missing, unexpected = self.model.backbone.load_state_dict(domain_state, strict=False)
+                domain_state[_normalize_lora_key_for_domain(k, domain)] = v
+
+            missing_mapped = [k for k in domain_state.keys() if k not in backbone_keys]
+            missing_ratio = len(missing_mapped) / max(1, len(domain_state))
+            print(
+                f"Domain '{domain}': mapped={len(domain_state)}, "
+                f"unmatched={len(missing_mapped)}, missing_ratio={missing_ratio:.3f}"
+            )
+            if missing_mapped:
+                print(f"  Unmatched sample keys: {missing_mapped[:5]}")
+            if missing_ratio > MAX_ALLOWED_MISSING_RATIO:
+                raise RuntimeError(
+                    f"Too many unmatched mapped LoRA keys for domain '{domain}': "
+                    f"{len(missing_mapped)}/{len(domain_state)} ({missing_ratio:.3f})"
+                )
+
+            filtered_state = {k: v for k, v in domain_state.items() if k in backbone_keys}
+            _, unexpected = self.model.backbone.load_state_dict(filtered_state, strict=False)
+            if unexpected:
+                print(f"Domain '{domain}' unexpected keys after load: {unexpected[:5]}")
 
         # Load router weights if provided
         if router_weights_path and Path(router_weights_path).exists():
-            router_state = torch.load(router_weights_path, map_location=self.device)
+            router_payload = torch.load(router_weights_path, map_location=self.device, weights_only=False)
+            router_state = _extract_state_dict(router_payload)
             self.router.load_state_dict(router_state, strict=True)
 
     def _set_active_domain(self, domain_idx: int):
@@ -278,12 +340,12 @@ if __name__ == "__main__":
 
     # 1. Create a mock config that perfectly mimics YAML structure
     class MockModelSection:
-        model_file = "mamba-vision-ours/model.py"
+        model_file = "mamba-vision-ours/base_model.py"
         backbone = "mamba_vision_T2"
         num_classes = 8
         pretrained = False
         checkpoint_path = ""
-        base_checkpoint = "checkpoints/base/coco_base_epoch009.ckpt"
+        base_checkpoint = "checkpoints/base/coco_base.ckpt"
         
         # MOCK ADAPTER PATHS
         moe_adapters = {

@@ -16,6 +16,10 @@ Main entry notebooks:
 - `notebooks/14_train_lora_acdc.ipynb`
 - `notebooks/20_eval_shared.ipynb`
 
+Runtime note:
+- Mamba train/eval in this repo requires CUDA + `mamba_ssm`.
+- On macOS without CUDA, run only data export/manifest steps.
+
 ## Quickstart
 
 1) (Optional) Create a local sample subset from a raw copy:

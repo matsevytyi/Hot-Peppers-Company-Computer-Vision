@@ -41,7 +41,7 @@ eval:
   models:
     - name: base_coco
       model:
-        model_file: mamba-vision-ours/model.py
+        model_file: mamba-vision-ours/base_model.py
         backbone: mamba_vision_T2
         num_classes: 8
         pretrained: false
@@ -50,7 +50,7 @@ eval:
 
     - name: lora_day
       model:
-        model_file: mamba-vision-ours/model.py
+        model_file: mamba-vision-ours/base_model.py
         backbone: mamba_vision_T2
         num_classes: 8
         pretrained: false
@@ -65,7 +65,7 @@ eval:
 
     - name: lora_night
       model:
-        model_file: mamba-vision-ours/model.py
+        model_file: mamba-vision-ours/base_model.py
         backbone: mamba_vision_T2
         num_classes: 8
         pretrained: false
@@ -80,7 +80,7 @@ eval:
 
     - name: lora_acdc
       model:
-        model_file: mamba-vision-ours/model.py
+        model_file: mamba-vision-ours/base_model.py
         backbone: mamba_vision_T2
         num_classes: 8
         pretrained: false

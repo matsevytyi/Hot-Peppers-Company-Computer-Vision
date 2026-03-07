@@ -20,6 +20,23 @@ class EvaluationResult:
     telemetry: List[Dict[str, float | int | str | bool | None]]
 
 
+def _normalize_detection_outputs(outputs):
+    """Normalize model outputs to `List[Tensor]` + optional router probabilities."""
+    if isinstance(outputs, tuple):
+        if len(outputs) == 2 and isinstance(outputs[0], (list, tuple)):
+            det_outputs = list(outputs[0])
+            router_probs = outputs[1] if torch.is_tensor(outputs[1]) else None
+            return det_outputs, router_probs
+        if all(torch.is_tensor(item) for item in outputs):
+            return list(outputs), None
+    if isinstance(outputs, list):
+        return outputs, None
+    raise TypeError(
+        "Model outputs must be a list of tensors, a tuple of tensors, "
+        "or `(list_of_tensors, router_probs_tensor)`"
+    )
+
+
 def _build_map_metric():
     try:
         from torchmetrics.detection.mean_ap import MeanAveragePrecision
@@ -126,6 +143,9 @@ def evaluate_model_detailed(
     measured_infer_time_s = 0.0
     total_energy_j = 0.0
     observed_power_samples = 0
+    router_conf_sum = 0.0
+    router_entropy_sum = 0.0
+    router_batches = 0
 
     try:
         with torch.no_grad():
@@ -157,7 +177,8 @@ def evaluate_model_detailed(
                 if device.type == "cuda":
                     torch.cuda.synchronize(device)
                 start = time.perf_counter()
-                outputs = model(images)
+                model_outputs = model(images)
+                outputs, router_probs = _normalize_detection_outputs(model_outputs)
                 predictions = decode_predictions(
                     outputs,
                     num_classes=num_classes,
@@ -182,6 +203,15 @@ def evaluate_model_detailed(
                 infer_time_s = end - start
                 batch_frames = int(images.shape[0])
                 converted_targets = targets_to_abs_xyxy(targets, image_size=image_size)
+                router_top1_conf: Optional[float] = None
+                router_entropy: Optional[float] = None
+                if torch.is_tensor(router_probs) and router_probs.ndim == 2 and router_probs.shape[0] == batch_frames:
+                    probs = router_probs.detach()
+                    probs = probs.clamp(min=1e-8)
+                    top1 = probs.max(dim=1).values
+                    entropy = -(probs * probs.log()).sum(dim=1)
+                    router_top1_conf = float(top1.mean().item())
+                    router_entropy = float(entropy.mean().item())
 
                 all_preds.extend([{k: v.detach().cpu() for k, v in p.items()} for p in predictions])
                 all_targets.extend([{k: v.detach().cpu() for k, v in t.items()} for t in converted_targets])
@@ -193,6 +223,10 @@ def evaluate_model_detailed(
                     measured_batches += 1
                     measured_frames += batch_frames
                     measured_infer_time_s += infer_time_s
+                    if router_top1_conf is not None and router_entropy is not None:
+                        router_conf_sum += router_top1_conf
+                        router_entropy_sum += router_entropy
+                        router_batches += 1
 
                     batch_avg_power_w: Optional[float] = None
                     batch_energy_j: Optional[float] = None
@@ -216,6 +250,8 @@ def evaluate_model_detailed(
                                 "energy_j_batch": batch_energy_j,
                                 "frames_per_watt_batch": batch_fpw,
                                 "power_backend": monitor.backend_name,
+                                "router_top1_conf_batch": router_top1_conf,
+                                "router_entropy_batch": router_entropy,
                             }
                         )
     finally:
@@ -265,6 +301,8 @@ def evaluate_model_detailed(
     metrics["warmup_batches"] = warmup_batches
     metrics["measured_batches"] = measured_batches
     metrics["measured_frames"] = measured_frames
+    metrics["router_top1_conf"] = (router_conf_sum / router_batches) if router_batches > 0 else None
+    metrics["router_entropy"] = (router_entropy_sum / router_batches) if router_batches > 0 else None
 
     if isinstance(monitor, NullPowerMonitor):
         metrics["power_reason"] = monitor.reason
