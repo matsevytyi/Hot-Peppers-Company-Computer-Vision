@@ -76,7 +76,7 @@ python train.py --data_root data/MMFW-UAV/sample --epochs 10
 **C. Inference & Low-Level Calibration (Ivan)**
 
 ~~0. Fix eval script for full model (does not account for router as of now)~~
-1. Add inference code to run model on video
+~~1. Add inference code to run model on video~~
 2. Experiment with making Δ (step size) and the A matrix dynamic during inference to trade off temporal resolution for speed.
 3. Identify if the bottleneck is the Selective Scan (S6) kernel or the linear projections on the hardware.
 4. Apply INT8 quantization to the CNN/MLP stages while maintaining FP16 for the SSM blocks to preserve precision.

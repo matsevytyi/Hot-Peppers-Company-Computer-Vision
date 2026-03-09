@@ -13,12 +13,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.append(str(REPO_ROOT))
 
 from pipelines.coco_dataset import build_dataloader  # noqa: E402
-from pipelines.contracts import DatasetManifest, EvalConfig, ModelSection  # noqa: E402
+from pipelines.contracts import DatasetManifest, EvalConfig  # noqa: E402
 from pipelines.dependencies import assert_mamba_runtime_support  # noqa: E402
 from pipelines.evaluation import evaluate_model_detailed  # noqa: E402
-from pipelines.lora import inject_lora_modules, load_lora_adapters  # noqa: E402
-from pipelines.model_loader import create_model_from_config  # noqa: E402
-from pipelines.training import load_checkpoint, resolve_device  # noqa: E402
+from pipelines.inference_loader import load_model_from_eval_entry  # noqa: E402
+from pipelines.training import resolve_device  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -29,36 +28,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def _load_model(model_cfg_dict: dict, device: str):
-    section = ModelSection.from_dict(model_cfg_dict["model"])
-    section.model_file = str((REPO_ROOT / section.model_file).resolve())
-    section.moe_model_file = str((REPO_ROOT / section.moe_model_file).resolve())
-    model = create_model_from_config(section, device=device)
-
-    # Backward-compatible precedence: top-level eval model entry, then nested model section.
-    base_checkpoint = model_cfg_dict.get("base_checkpoint") or section.base_checkpoint
-    if base_checkpoint:
-        base_path = Path(base_checkpoint)
-        if not base_path.is_absolute():
-            base_path = (REPO_ROOT / base_path).resolve()
-        load_checkpoint(base_path, model)
-
-    lora_adapter = model_cfg_dict.get("lora_adapter")
-    if lora_adapter:
-        lora_path = Path(lora_adapter)
-        if not lora_path.is_absolute():
-            lora_path = (REPO_ROOT / lora_path).resolve()
-        lora_cfg = model_cfg_dict.get("lora", {})
-        inject_lora_modules(
-            model.backbone,
-            rank=int(lora_cfg.get("rank", 8)),
-            alpha=int(lora_cfg.get("alpha", 16)),
-            dropout=float(lora_cfg.get("dropout", 0.05)),
-            target_rule=str(lora_cfg.get("target_rule", "all_linear_except_head")),
-        )
-        missing, unexpected = load_lora_adapters(model, str(lora_path), strict=False)
-        print(f"Loaded LoRA adapter: {lora_path} (missing={len(missing)}, unexpected={len(unexpected)})")
-
-    return model, section
+    return load_model_from_eval_entry(model_cfg_dict=model_cfg_dict, repo_root=REPO_ROOT, device=device)
 
 
 def _safe_name(value: str) -> str:
