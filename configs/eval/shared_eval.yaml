@@ -92,3 +92,19 @@ eval:
         alpha: 16
         dropout: 0.05
         target_rule: all_linear_except_head
+
+    - name: moe_full_router
+      model:
+        model_file: mamba-vision-ours/base_model.py
+        moe_model_file: mamba-vision-ours/moe_model.py
+        backbone: mamba_vision_T2
+        num_classes: 8
+        pretrained: false
+        checkpoint_path: ""
+        moe_router_weights: checkpoints/router/router_v1.ckpt
+        moe_adapters:
+          day: checkpoints/lora/bdd_day.safetensors
+          night: checkpoints/lora/bdd_night.safetensors
+          adverse: checkpoints/lora/acdc_adverse.safetensors
+        lora_target_rule: all_linear_except_head
+      base_checkpoint: checkpoints/base/coco_base.ckpt

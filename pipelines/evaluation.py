@@ -1,4 +1,4 @@
-"""Evaluation helpers for base and LoRA checkpoints."""
+"""Evaluation helpers for base, LoRA, and MoE checkpoints."""
 
 from __future__ import annotations
 

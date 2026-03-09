@@ -34,7 +34,8 @@ def _load_model(model_cfg_dict: dict, device: str):
     section.moe_model_file = str((REPO_ROOT / section.moe_model_file).resolve())
     model = create_model_from_config(section, device=device)
 
-    base_checkpoint = model_cfg_dict.get("base_checkpoint")
+    # Backward-compatible precedence: top-level eval model entry, then nested model section.
+    base_checkpoint = model_cfg_dict.get("base_checkpoint") or section.base_checkpoint
     if base_checkpoint:
         base_path = Path(base_checkpoint)
         if not base_path.is_absolute():
